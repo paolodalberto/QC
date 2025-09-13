@@ -15,7 +15,7 @@ This book is by David Mermin and I think I read this twice, the first time I Cou
 ## Introduction to classical and Quantum Computing
 by Thomas Wong ISBN-13 979-8985593105
 
-This is so far the book that eased me into the QC because it relies on explanations using also classic concept. It is a fast read. There are links to youtube. The authors really wants to engage and to excite an interest for the field. It is the first book that really let you have the first experiment using Bell's inequalities. No appendices and not fluffy things, but you can see that there is substance and the decisions not to explain are clear cut and the book is completely self contained. If you want to start, Wong's book is so far the best choice. 
+This is so far the book that eased me into the QC because it relies on explanations using also classic concept. It is a fast read. There are links to youtube. The authors really wants to engage and to excite an interest for the field. It is the first book that really let you have the first experiment using Bell's inequalities. No appendices and not fluffy things, but you can see that there is substance and the decisions not to explain are clear cut and the book is completely self contained. If you want to start, Wong's book is so far the best choice. there is a full PDF available and a website for it ... 
 
 ## Quantum Computing with Python and IBM Quantum 
 by Robert Loredo ISBN-13 978-1803244808
