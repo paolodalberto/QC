@@ -4,7 +4,7 @@ This is in chronological order and the mispell are all mine.
 
 ## Quantum Computing (A gentle Introduction)
 https://www.amazon.com/Quantum-Computing-Introduction-Engineering-Computation/dp/0262526670
-this ismy first read and I do not have much a memory of it.
+this is my first read and I do not have much a memory of it.
 
 ## MAthematical Foundation of Quantum Mechanics 
 This is by John von Neumann translation by Robert Beyer. I know you will make fun of me but I wanted to read written by Johnny and a translation he read himself and one day I may go back to try to understand it. ISBN-13 978-0691028934
