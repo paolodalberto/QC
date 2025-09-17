@@ -31,4 +31,12 @@ In practice 8GB will fit in one GPU 32 will require some smart division.
 
 There may be a code generation of sparse matrix vector operation that can be encoded directly, and thus write a hip single shot computation. 
 
+## A Scalable FPGA Architecture for Quantum Computing Simulation
+https://arxiv.org/pdf/2407.06415
+
+This is an Altera implementation and it is a classic FPGA with DPS and finite precision. The idea is brillianty simple to describe. 
+We create 1 qbit and 2qbit operators, and you create a routing/permutation that at each step drive the 1qubit (two values in the state) or two qbits  (4 values) into the proper computational unit, perform the complex matrix operation. 
+I cannot see the parallelism across 1 and 2 operations and I wonder if we need to perform each gate sequentially even when they are parallel. 
+
+
 
