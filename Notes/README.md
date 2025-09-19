@@ -32,23 +32,59 @@ by Robert Loredo ISBN-13 978-1803244808
 ### Enabling Quantum Computer Simulations on AMD GPUs: a HIP Backend for Google’s qsim
 https://dl.acm.org/doi/pdf/10.1145/3624062.3624223
 
-We are in the realm of state vector simulators, up to 30 qbit ((4+4) complex single precision of (8+8 complex double precision) 2**30 so we can have 8GB or 32GB), and the idea is to _hipify_ the cuda code so that qsim just uses an on-purpose built hip device by translating the cuda calls.  In praqctice, the basic gates are 1 and 2 bits, thus the sparsity is quite large and as a function where the gate is located the diagonal locations are *more* separated and strided. 
+We are in the realm of state vector simulators, up to 30 qbit ((4+4)
+complex single precision of (8+8 complex double precision) 2**30 so we
+can have 8GB or 32GB), and the idea is to _hipify_ the cuda code so
+that qsim just uses an on-purpose built hip device by translating the
+cuda calls.  In praqctice, the basic gates are 1 and 2 bits, thus the
+sparsity is quite large and as a function where the gate is located
+the diagonal locations are *more* separated and strided.
 
 The basic computation will be a matrix (transformation) by vector
 (state) to obtain the next state ... and this is carried on. Gate
 fusion by Kronecker and by matrix multiplication guide the
-optimization. Not clear when actually the "barrier" is computed so
-that the new state is available.  In practice 8GB will fit in one GPU
-32 will require some smart division.
+optimization.
 
-There may be a code generation of sparse matrix vector operation that can be encoded directly, and thus write a hip single shot computation. 
+A note about the Kronecker product (x) and parallel gates: Take H and
+G two gates applied to different qbit. The step computation is
+described by two matrices A = I (x) G and B = H (x) I and the overall
+computation is the matrix product A * B. Then A * B = B* A = H (x) G.
+The order is about the qubit and not the A and B.
+
+Proof. A = [ [G 0] [0 G]] and B = [ [h0.I h1.I] [h2.I h3.I]]
+A*B = [ [h0.G h1.G], [h2.G h3.G]] = H (x) G 
+B*A = [ [h0.G h1.G], [h2.G h3.G]] 
+So the computation A*B, B*A, H (x) G are all equivalent. 
+
+In practice 8GB will fit in one GPU 32 will require some smart
+division. There may be a code generation of sparse matrix vector
+operation that can be encoded directly, and thus write a hip single
+shot computation. But notice that the "constant matrix is literally
+2x2,4x4  and the state vector is 2^n.
+
+I think the main performance boost is by the HBM2. This is
+communication bound.
+
 
 ### A Scalable FPGA Architecture for Quantum Computing Simulation
 https://arxiv.org/pdf/2407.06415
 
-This is an Altera implementation and it is a classic FPGA with DPS and finite precision. The idea is brillianty simple to describe. 
-We create 1 qbit and 2qbit operators, and you create a routing/permutation that at each step drive the 1qubit (two values in the state) or two qbits  (4 values) into the proper computational unit, perform the complex matrix operation. 
-I cannot see the parallelism across 1 and 2 operations and I wonder if we need to perform each gate sequentially even when they are parallel. 
+This is an Altera implementation and it is a classic FPGA with DPS and
+finite precision. The idea is brilliantly simple to describe.  We
+create 1 qbit and 2qbit operators, and you create a
+routing/permutation that at each step drive the 1qubit (two values in
+the state) or two qbits (4 values) into the proper computational unit,
+perform the complex matrix operation.  The operation is repeated to
+the overall state and further parallelism can be applied here because
+we can have multiple functions.  You can see this as a universal
+quantum machine simulator: We need to introduce a sequence of
+operations and permutations, the depth of the circuit. 
+
+FPGA can store all operations internally and the only thing is to
+traverse the state properly having a HBM should be quite appropriate.
+With the proper ideas fusion of layer could actually reduce the passes
+from and to the HBM.
+
 
 
 
