@@ -33,8 +33,13 @@ by Robert Loredo ISBN-13 978-1803244808
 https://dl.acm.org/doi/pdf/10.1145/3624062.3624223
 
 We are in the realm of state vector simulators, up to 30 qbit ((4+4) complex single precision of (8+8 complex double precision) 2**30 so we can have 8GB or 32GB), and the idea is to _hipify_ the cuda code so that qsim just uses an on-purpose built hip device by translating the cuda calls.  In praqctice, the basic gates are 1 and 2 bits, thus the sparsity is quite large and as a function where the gate is located the diagonal locations are *more* separated and strided. 
-The basic computation will be a matrix (transformation) by vector (state) to obtain the next state ... and this is carried on. Gate fusion by kroneker and by matrix multiplication guide the optimization. Not clear when actually the "barrier" is computed so that the new state is available. 
-In practice 8GB will fit in one GPU 32 will require some smart division.
+
+The basic computation will be a matrix (transformation) by vector
+(state) to obtain the next state ... and this is carried on. Gate
+fusion by Kronecker and by matrix multiplication guide the
+optimization. Not clear when actually the "barrier" is computed so
+that the new state is available.  In practice 8GB will fit in one GPU
+32 will require some smart division.
 
 There may be a code generation of sparse matrix vector operation that can be encoded directly, and thus write a hip single shot computation. 
 
