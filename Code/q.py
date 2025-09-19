@@ -120,7 +120,13 @@ while isinstance(current_node, (DAGInNode, DAGOpNode)):
 
 pdb.set_trace()
 
-print("Final layout:", final_layout)
+print("--- Traversing the DAG layer by layer ---")
+for i, layer in enumerate(dag.layers()):
+    print(f"\nLayer {i+1}:")
+    for node in layer["graph"].op_nodes():
+        print(f"  - Operation: {node.op.name}, Qubits: {node.qargs}")
+
+pdb.set_trace()
 
 # Run the circuit on a statevector simulator using the Sampler primitive
 sampler = Sampler()

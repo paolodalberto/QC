@@ -41,10 +41,10 @@ matrix = numpy.matrix(
 )
 g_p = UnitaryGate(matrix)
  
-
+Bits = 3
 
 # Create a quantum circuit with 2 qubits
-bell_circuit = QuantumCircuit(3)
+bell_circuit = QuantumCircuit(Bits)
 
 # Apply a Hadamard gate to the first qubit to create a superposition
 bell_circuit.h(0)
@@ -82,11 +82,13 @@ for node in dag.topological_op_nodes():
 import pdb; pdb.set_trace()
 
 print("--- Traversing the DAG layer by layer ---")
-for i, layer in enumerate(dag.layers()):
-    print(f"\nLayer {i+1}:")
-    for node in layer["graph"].op_nodes():
-        print(f"  - Operation: {node.op.name}, Qubits: {node.qargs}")
 
+import dag
+
+T = dag.play(transpiled_qc,122,3)
+                
+
+print(numpy.round(T, 3))
 pdb.set_trace()
 
 # Run the circuit on a statevector simulator using the Sampler primitive
