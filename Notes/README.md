@@ -56,14 +56,16 @@ A*B = [ [h0.G h1.G], [h2.G h3.G]] = H (x) G
 B*A = [ [h0.G h1.G], [h2.G h3.G]] 
 So the computation A*B, B*A, H (x) G are all equivalent. 
 
-In practice 8GB will fit in one GPU 32 will require some smart
-division. There may be a code generation of sparse matrix vector
-operation that can be encoded directly, and thus write a hip single
-shot computation. But notice that the "constant matrix is literally
-2x2,4x4  and the state vector is 2^n.
+In practice 8GB will fit in one GPU 32GB will require some smart
+division or multiple GPUs. There may be a code generation of sparse
+matrix vector operation that can be encoded directly, and thus write a
+hip single shot computation. But notice that the "constant matrix is
+literally 2x2,4x4 and the state vector is 2^n.
 
 I think the main performance boost is by the HBM2. This is
-communication bound.
+communication bound. Also I have to understand the "split of qubits".
+
+
 
 
 ### A Scalable FPGA Architecture for Quantum Computing Simulation
