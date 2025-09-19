@@ -125,6 +125,8 @@ print("estimated F*one", z[0]**2, z[1]**2)
 # Create a quantum circuit with 1 qubits
 bell_circuit = QuantumCircuit(1)
 
+initial_state = [1, 0]
+bell_circuit.initialize(initial_state, 0) 
 # Apply a Hadamard gate to the first qubit to create a superposition
 bell_circuit.h(0)             
 bell_circuit.append(g_p, [0])
@@ -137,7 +139,7 @@ bell_circuit.measure_all()
 # Run the circuit on a statevector simulator using the Sampler primitive
 sampler = Sampler()
 
-job = sampler.run([bell_circuit], shots=10000)
+job = sampler.run([bell_circuit], shots=1000)
 result = job.result()
 counts = result[0].data.meas.get_counts()
 
