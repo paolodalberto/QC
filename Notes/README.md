@@ -25,7 +25,8 @@ by Robert Loredo ISBN-13 978-1803244808
 
 (1/2 the way through, this si a light introduction to the tools for designing, simulate, and run QC algorithms) From here I am trying to understand the building plock of the current implementation of the tools for QC. 
 
-
+### Quantum Programming: Unlocking the Future of Computing 
+An absolute waste of money.
 
 ## ARTICLES 
 
