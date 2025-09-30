@@ -83,6 +83,22 @@ we can have multiple functions.  You can see this as a universal
 quantum machine simulator: We need to introduce a sequence of
 operations and permutations, the depth of the circuit. 
 
+Consider a circuit, we take the sequence of layers. Consider a layer,
+we take a gate in any order (see proof above) and the state matrix
+transiton is simply either I_M (x) G_K (block diagonal) or G_K (x)
+I_M. Where, M+K is the number of qubits, (x) Kroneker product, I is an
+identity, G is a gate.  
+
+The case I_M (x) G_K is obvious there are M parallel computation of
+G_K. The Matrix is block Diagonal and G is repeated M times.
+
+The case G_K (x) I_M in this paper is solved as ( I_M (x) G_K ) P
+where P is a permutation. To obtain the same order of the input the
+computation should be (P^-1)( I_M (x) G_K ) P but since we create a
+sequence for the gates G the left most permutation will merge into the
+next. The advantage is that the "reading" by the kernel/gate
+computation is always contiguous and the same ideal for HW.
+
 FPGA can store all operations internally and the only thing is to
 traverse the state properly having a HBM should be quite appropriate.
 With the proper ideas fusion of layer could actually reduce the passes
