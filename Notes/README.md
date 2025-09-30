@@ -90,7 +90,8 @@ I_M. Where, M+K is the number of qubits, (x) Kroneker product, I is an
 identity, G is a gate.  
 
 The case I_M (x) G_K is obvious there are M parallel computation of
-G_K. The Matrix is block Diagonal and G is repeated M times.
+G_K. The Matrix is block Diagonal and G is repeated M times. We can
+exploit computation parallelism SIMD.
 
 The case G_K (x) I_M in this paper is solved as ( I_M (x) G_K ) P
 where P is a permutation. To obtain the same order of the input the
@@ -99,11 +100,28 @@ sequence for the gates G the left most permutation will merge into the
 next. The advantage is that the "reading" by the kernel/gate
 computation is always contiguous and the same ideal for HW.
 
+
 FPGA can store all operations internally and the only thing is to
 traverse the state properly having a HBM should be quite appropriate.
 With the proper ideas fusion of layer could actually reduce the passes
 from and to the HBM.
 
 
+## commentary above 
+
+The permutation P above is a power of two bit shuffle. For a FPGA the
+granularity of the shuffle is immaterial but the network to create the
+shuffle can be tricky. The permutation P shows an interesting access
+pattern that any implementation should be aware when there are caches
+(GPU and CPU)
+
+In case of caches, They all have long lines and thus there is spatial
+locality .. We would not use the Permutation itself but in HBM we
+would use to read as much as we need and as many pages we can. When we
+are in the hierarchical part of the caches the access pattern is a
+power of two and associativity is limited. There will be patterns
+where data will be evicted before their reuse because they are
+associated with the same "slot". In such a computation, a memory
+hierarchy is actually harmful. 
 
 
