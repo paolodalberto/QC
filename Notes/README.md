@@ -107,7 +107,7 @@ With the proper ideas fusion of layer could actually reduce the passes
 from and to the HBM.
 
 
-## commentary above 
+### commentary above 
 
 The permutation P above is a power of two bit shuffle. For a FPGA the
 granularity of the shuffle is immaterial but the network to create the
