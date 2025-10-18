@@ -17,16 +17,6 @@ import lib
 ##############################################################
 
 
-
-
-
-
-
-
-
-
-
-
 ########
 ### 
 ### We have a gate G as a matrix (1bit) 2x2, (2bit) 4x4, (3bit) 8x8
@@ -125,6 +115,29 @@ def Il_G_Ir_state(
     return tstate
 
 
+
+## the partition of the computation is by columns the state will be
+## collected as a single vector. but w can play with the idea that we
+## build the state on the fly by P
+
+def G_state_P(
+        G  : numpy.ndarray, # gate Computation 
+        state : numpy.ndarray, # state
+        P : int = 2**4
+) -> numpy.ndarray : # state
+
+    Ir = state.shape[0]//G.shape[0]
+    K = Ir//P
+    T = state.reshape(G.shape[0], Ir)
+    for i in range(P):
+        T[:,i*K:(i+1)*K] = G@T[:,i*K:(i+1)*K] 
+        
+    state = T.flatten()
+    return state
+
+
+
+
 #####
 ##
 ## Missing implementation is the case the Gate does not hit
@@ -187,13 +200,13 @@ class State:
 
         self.bits_p  = int(numpy.log2(self.state[0].shape[0]))
         self.bits_top = int(numpy.log2(len(self.state)))
+        self.bits     =    self.bits_p +   self.bits_top    
 
-        self.bits     =    self.bits_p+   self.bits_top    
         
     def  Il_G_Ir_state(self,
-            Il : int , # left identity: parallelism
+            Il : int ,          # left bits 
             G  : numpy.ndarray, # gate Computation 
-            Ir : int): # right identity : either kroneker or permutation  
+            Ir : int):          # right bits
         
         #import pdb; pdb.set_trace()
         bitgate = int(numpy.log2(G.shape[0]))
@@ -201,9 +214,9 @@ class State:
             # this operation has more bits than the physical one
             return 0
         
-        
-        if bitgate+Ir <= self.bits_p:
-            print("distributed state layer")
+        ## every thing fit into a single part 
+        if Il>= self.bits_top or bitgate+Ir <= self.bits_p:
+            print("distribute the computation")
             for s in self.state:
                 ## each state is distibuted into different spaces you
                 ## can think of GPUs but I simulate them by different
@@ -211,23 +224,29 @@ class State:
                 
                 s = Il_G_Ir_state(2**(self.bits_p-bitgate-Ir), G, 2**Ir,s)
             return 1
+         
+        ## it does not fit into a single part
+        ## "permutation ?
 
-        
+
         K =   bitgate+Ir - self.bits_p
 
+        ## gather
+        S = numpy.zeros(2**self.bits, dtype = self.state[0].dtype)
+        Q =self.state[0].shape[0]
+        L = len(self.state)
+        print("gather", L )
+        for s in range(L):
+            S[s*Q:(s+1)*Q] =self.state[s]
+
+        print("Computation")
+        G_state_P(G, S)
+        print("scatter", L )
+        for s in range(L):
+             self.state[s] = S[s*Q:(s+1)*Q]
         
-        if K ==  self.bits_top:
 
-            
-            state = self.state[0] *0
-
-            for j in range(1, K,1):
-                for k in range(1, K,1):
-                    state[j:(j+1)]=  self.state[k][j,(j+1)] 
-                state = Il_G_Ir_state(1, G, 2**(Ir-K),state)
-
-
-        
+        del S
         return 1
 
     
@@ -270,12 +289,12 @@ if __name__ == "__main__":
 ### TESTS
 ###
 ##############################################################
-    SINGLE   = True #False 
-    MUTLIPLE = False 
+    SINGLE   = False 
+    MUTLIPLE = True #False 
 
     import time
     if MUTLIPLE:
-        two_state(20,lib.cnot(),1)
+        two_state(27,lib.cnot(),1)
     
 
     if SINGLE:
