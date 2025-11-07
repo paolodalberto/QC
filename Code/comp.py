@@ -202,6 +202,178 @@ class State:
         self.bits_top = int(numpy.log2(len(self.state)))
         self.bits     =    self.bits_p +   self.bits_top    
 
+
+    ## The computation is practically
+    ## X = x1 |  x2
+    ## G*X where X is K x N/K 
+    ## G * [ A is K x N/K/2 | B] 
+    ## 
+        
+    def case_2(x1, x2, G):
+
+        ## temporary space 
+        
+        N = x1.shape[0]
+        K = G.shape[0]
+
+        X1 = x1.reshape(K, N/K)
+        X2 = x2.reshape(K, N/K)
+        
+        T1 = (x1*1) # copy  
+        T2 = (x2*1) # or local temporary buffer
+
+        M = K/2
+
+        ## permute 
+        T1[M: ,:] = X2[0:M,:]
+        T2[0:M,:] = X1[M: ,:]
+
+
+        T1 =  G@T1 # G >= 2 
+        T2 =  G@T2 
+
+        # permute back 
+        X1[0:M,:]  = T1[0:M,:]
+        X1[M: ,:]  = T2[0:M,:]
+        X2[0:M,:]  = T1[M: ,:]
+        X2[M: ,:]  = T2[M: ,:]
+
+
+
+    def case_4(x1, x2,
+               x3, x4,
+               G):
+
+        N = x1.shape[0]
+        K = G.shape[0]
+
+        if K==2:
+            ## two parallel
+            case_2(x1,x2,G) 
+            case_2(x3,x4,G)
+            
+        else:
+        
+            X0 = x1.reshape(K, N/K) # This is a logical reshape
+            X1 = x2.reshape(K, N/K)
+            X2 = x3.reshape(K, N/K)
+            X3 = x4.reshape(K, N/K)
+        
+            T0 = (X0*1) # copy  
+            T1 = (X1*1) # or local temporary buffer
+            T2 = (X2*1) # copy  
+            T3 = (X3*1) # or local temporary buffer
+        
+            T0[1,:]   = X1[0,:]
+            T0[2,:]   = X2[0,:]
+            T0[3,:]   = X3[0,:]
+
+            T1[0,:]   = X0[1,:]
+            T1[2,:]   = X2[1,:]
+            T1[3,:]   = X3[1,:]
+
+            T2[0,:]   = X0[2,:]
+            T2[1,:]   = X1[2,:]
+            T2[3,:]   = X3[2,:]
+
+            T3[0,:]   = X0[3,:]
+            T3[1,:]   = X1[3,:]
+            T3[2,:]   = X2[3,:]
+
+
+            T0 =  G@T0  ## PARALLEL
+            T1 =  G@T1  ## PARALLEL
+            T2 =  G@T2 
+            T3 =  G@T3 
+            
+            X0[0,:]  = T0[0,:]
+            X1[0,:]  = T0[1,:]
+            X2[0,:]  = T0[2,:]
+            X3[0,:]  = T0[3,:]
+
+            X0[1,:]  = T1[0,:]
+            X1[1,:]  = T1[1,:]
+            X2[1,:]  = T1[2,:]
+            X3[1,:]  = T1[3,:]
+
+            X0[2,:]  = T2[0,:]
+            X1[2,:]  = T2[1,:]
+            X2[2,:]  = T2[2,:]
+            X3[2,:]  = T2[3,:]
+
+            X0[3,:]  = T3[0,:]
+            X1[3,:]  = T3[1,:]
+            X2[3,:]  = T3[2,:]
+            X3[3,:]  = T3[3,:]
+
+    def case_8(x1, x2,
+               x3, x4,
+               x5, x6,
+               x7, x8,
+               G):
+
+        N = x1.shape[0]
+        K = G.shape[0]
+
+        if K==4:
+            ## two parallel
+            case_4(x1,x2,x3,x4,G) 
+            case_4(x5,x6,x7,x8,G)
+            
+        else:
+        
+            X0 = x1.reshape(K, N/K) # This is a logical reshape
+            X1 = x2.reshape(K, N/K)
+            X2 = x3.reshape(K, N/K)
+            X3 = x4.reshape(K, N/K)
+        
+            T0 = (X0*1) # copy  
+            T1 = (X1*1) # or local temporary buffer
+            T2 = (X2*1) # copy  
+            T3 = (X3*1) # or local temporary buffer
+        
+            T0[1,:]   = X1[0,:]
+            T0[2,:]   = X2[0,:]
+            T0[3,:]   = X3[0,:]
+
+            T1[0,:]   = X0[1,:]
+            T1[2,:]   = X2[1,:]
+            T1[3,:]   = X3[1,:]
+
+            T2[0,:]   = X0[2,:]
+            T2[1,:]   = X1[2,:]
+            T2[3,:]   = X3[2,:]
+
+            T3[0,:]   = X0[3,:]
+            T3[1,:]   = X1[3,:]
+            T3[2,:]   = X2[3,:]
+
+
+            T0 =  G@T0  ## PARALLEL
+            T1 =  G@T1  ## PARALLEL
+            T2 =  G@T2 
+            T3 =  G@T3 
+            
+            X0[0,:]  = T0[0,:]
+            X1[0,:]  = T0[1,:]
+            X2[0,:]  = T0[2,:]
+            X3[0,:]  = T0[3,:]
+
+            X0[1,:]  = T1[0,:]
+            X1[1,:]  = T1[1,:]
+            X2[1,:]  = T1[2,:]
+            X3[1,:]  = T1[3,:]
+
+            X0[2,:]  = T2[0,:]
+            X1[2,:]  = T2[1,:]
+            X2[2,:]  = T2[2,:]
+            X3[2,:]  = T2[3,:]
+
+            X0[3,:]  = T3[0,:]
+            X1[3,:]  = T3[1,:]
+            X2[3,:]  = T3[2,:]
+            X3[3,:]  = T3[3,:]
+
         
     def  Il_G_Ir_state(self,
             Il : int ,          # left bits 
