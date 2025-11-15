@@ -170,6 +170,20 @@ void eigenSolver(rocblas_handle handle,
 }
 
 
+// In-place kernel function
+__global__ void elementwise_mult_broadcast_inplace(int N, int M, 
+                                                   const double* d_a, // Vector [M elements]
+                                                   double* d_b)       // Matrix [N*M elements] - used for both input AND output
+{
+    int row = blockIdx.x * blockDim.x + threadIdx.x;
+    int col = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (row < N && col < M) {
+        int index = row + col * N;
+        // Read the value, calculate the new value, store it back in the SAME location
+        d_b[index] = d_b[index] * d_a[col]; 
+    }
+}
 
 
 
@@ -214,8 +228,78 @@ void vector_by_natrix(int N, int M,
 
 
 }
-  
+void vector_by_natrix_inplace(int N, int M, 
+		      const double* d_a, // Vector [M elements]
+		      double* d_c) {     // destination
 
+  // 4. Launch the kernel
+  // We launch a 2D grid of threads (N rows * M columns is a safe size)
+  dim3 blocks( (N + 15) / 16, (M + 15) / 16 ); // Example block size calculation
+  dim3 threadsPerBlock(16, 16); 
+  
+  elementwise_mult_broadcast_inplace<<<blocks, threadsPerBlock>>>(
+							  N, M, d_a,  d_c
+							  );
+
+
+
+}
+
+
+#include <rocblas/rocblas.h>
+#include <hip/hip_runtime.h>
+#include <iostream>
+
+// ... (HIP_CHECK and ROCBLAS_CHECK macros remain the same) ...
+
+void calculate_norm_on_device(int N,
+			      double* d_vector,
+			      double* d_norm_result,
+			      rocblas_handle handle) {
+    
+
+    // --- CRITICAL STEP: Set the pointer mode to DEVICE ---
+    ROCBLAS_CHECK(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
+
+    int incx = 1;
+
+    // Call the rocBLAS function: the last argument is now a pointer to DEVICE memory
+    rocblas_status status = rocblas_dnrm2(handle, 
+                                          N,             
+                                          d_vector,      
+                                          incx,          
+                                          d_norm_result); // Pass the device pointer
+
+    if (status != rocblas_status_success) {
+        std::cerr << "rocBLAS dnrm2 failed!" << std::endl;
+        // Handle error
+    }
+    
+}
+
+
+
+void calculate_norm(int N, double* d_vector, rocblas_handle handle) {
+    double norm_result_host; // The result is returned to the host
+    int incx = 1;            // Stride for the vector (usually 1 for contiguous data)
+
+    // Call the rocBLAS function
+    rocblas_status status = rocblas_dnrm2(handle, 
+                                          N,             // n: number of elements in the vector
+                                          d_vector,      // x: pointer to the device vector
+                                          incx,          // incx: stride
+                                          &norm_result_host); // result: pointer to host memory for the result
+
+    if (status != rocblas_status_success) {
+        std::cerr << "rocBLAS dnrm2 failed!" << std::endl;
+        // Handle error
+    }
+
+    // Synchronize the stream/device (as the result is copied to the host pointer)
+    HIP_CHECK(hipDeviceSynchronize()); 
+
+    std::cout << "The L2 norm of the vector is: " << norm_result_host << std::endl;
+}
 
 
 		      
@@ -369,7 +453,8 @@ void davidson_rocm( Matrix  H,
 
 
     
-    
+
+
     
     
     
