@@ -1,4 +1,7 @@
-
+/**********************************
+ **  This is a code by Gemini and I 
+ ** 
+ ***/
 
 
 #include <iostream>
@@ -9,17 +12,9 @@
 #include <rocsolver/rocsolver.h>
 
 
-extern void sortarg(int N, // number of rows 
-		    int M, // number of keys  or columns 
-		    double *d_A, // source matrix  N rows and M columns we swap the columns
-		    double *d_B, // permuted destination matrix 
-		    double *d_sort_keys, // sorting keys
-		    int* d_perm_indices // permutation 
-		    );
+/// Miscellaneous errors  
 
-
-
-#define CHECK_HIP_ERROR(call) do { \
+#define CHECK_HIP_ERROR(call) do {		\
     hipError_t err = call; \
     if (err != hipSuccess) {						\
       std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__ << " : " \
@@ -35,6 +30,197 @@ extern void sortarg(int N, // number of rows
       exit(EXIT_FAILURE);						\
     }									\
   }
+
+
+
+
+
+/******************
+ *  STEP 1: Projection
+ *  P = V^t * H * V
+ ***/ 
+
+
+static inline
+void projection(rocblas_handle handle,
+		Matrix   &H, Matrix   &V, Matrix   &T, Matrix &P,
+		double *dH, double *dV, double *dT, double *dP, 
+		) {
+  
+  // T = H * V
+  CHECK_ROCBLAS_STATUS(
+	rocblas_dgemm(handle, 
+		      rocblas_operation_none, rocblas_operation_none, 
+		      H.m, V.n, H.n,  // this is the problem size                                                 
+		      &alpha, 
+		      dH, H.m, 
+		      dV, V.m, 
+		      &beta, 
+		      dT, T.m)); 
+
+  // P = V^t T 
+  CHECK_ROCBLAS_STATUS(
+	rocblas_dgemm(handle, 
+		      rocblas_operation_transpose, // transpose 
+		      rocblas_operation_none, 
+		      P.m, T.n, T.m, // this is the problem size
+		      &alpha, 
+		      dV, V.m, 
+		      dT, T.m, 
+		      &beta, 
+		      dP, P.m)); 
+  
+
+}
+
+/******************
+ *  STEP 2: Eigensolver 
+ *  A -> A,W
+ *       A = Matrix of Eigenvectors 
+ *       W = Eigenvalues
+ *   
+ ***/ 
+
+static inline
+int eigenSolver(rocblas_handle handle,
+		 Matrix &A,
+		 double *dA, double *dW, double *dWW,  int *info_device) {
+
+  int info_host = 0;
+
+  CHECK_ROCSOLVER_STATUS(
+        rocsolver_dsyev(
+			handle,
+			rocblas_evect_original, //rocblas_evect_full, // Jobz: use the enum value
+			rocblas_fill_upper, // Uplo: use the enum value
+			A.n,                  
+			dA,           
+			n,                  
+			dW,
+			dWW,
+			info_device         
+			));
+
+  check_hip_error(hipMemcpy(&info_host, info_device, sizeof(int), hipMemcpyDeviceToHost));
+  
+  // 6. Check for convergence issues and print results
+  if (info_host == 0) {
+    return 1;
+  } else {
+    return 0;
+    std::cerr << "The algorithm failed to converge. info = " << info_host << std::endl;
+  }
+}
+
+/***************
+ * STEP 3: sort the eigenvectors by eigenvalues
+ * A : Eigenvector Matrix
+ * d_sort_keys : eigenvalues 
+ * B sorted eigenvectors 
+ * d_perm_indices : temporary space for the permutation 
+ */
+
+extern void sortarg(int N, // number of rows 
+		    int M, // number of keys  or columns 
+		    double *d_A, // source matrix  N rows and M columns we swap the columns
+		    double *d_B, // permuted destination matrix 
+		    double *d_sort_keys, // sorting keys
+		    int* d_perm_indices // permutation 
+		    );
+
+/******************
+ * STEP 4 : V = V* B above Ritz vectors
+ */
+
+
+/******************
+ * STEP 5 : Computation of the residual to see if we can stop the
+ * iterations
+ */
+
+extern void residuals(rocblas_handle handle,
+		      int M, int N_EIG,
+		      double *d_H, 
+		      double *d_X, // Eigenvectors 
+		      double *d_eig_vals, // eigenvalues 
+		      double *d_HX_inter, // intermediate result
+		      double *d_R  // residuals
+		      );
+
+
+/****************
+ * STEP 6: norm of the residuals 
+ * < tolerance we are done 
+ */
+
+std::vector<double>
+calculate_norm(
+	       int N, 
+	       int M,
+	       double* d_A,
+	       double* d_norms,
+	       rocblas_handle handle) {
+  
+  std::vector<double> h_norms(N);
+  
+  // Set pointer mode to device, as results are stored on the device
+  ROCBLAS_CHECK(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
+  
+  // --- rocBLAS Call (Strided Batched NRM2) ---
+  std::cout << "Calling rocblas_dnrm2_strided_batched..." << std::endl;
+  ROCBLAS_CHECK(
+	 rocblas_dnrm2_strided_batched(
+	         handle,
+		 M,               // n: length of each vector
+		 d_A,             // x: device pointer to the matrix/vectors
+		 1,               // incx: stride within each vector (1 for column-major matrix)
+		 M,               // stride_x: stride between consecutive vectors in memory
+		 N,               // batch_count: number of vectors (columns)
+		 d_norms          // result: device pointer to store norms
+				       ));
+
+    // --- Copy results back to host ---
+    CHECK_HIP_ERROR(hipMemcpy(h_norms.data(), d_norms, N * sizeof(double), hipMemcpyDeviceToHost));
+    return h_norms
+}
+
+
+
+/****************
+ * STEP 7: Not converged we compute the corrections 
+ */
+
+extern corrections(int M, int N_EIG,
+		   double *d_R,      // residuals 
+		   double *d_diag_H, // H diagonal
+		   double *d_eig_vals, // eigenvalues 
+		   double *d_T,         // result
+		   const double epsilon); 
+
+/***************
+ * STEP 8:  V  = V+  Corrections
+ */
+
+
+
+/***************
+ * STEP 9:  V,R = QR(V)
+ */
+
+static inline
+void QR(rocblas_handle handle,
+	Matrix &A,    // the original matrix in the CPU
+	double *dA,  // this will be a pointer in the GPU of the Q of QR 
+	double *dTau // we need the pointer 
+	) {
+  
+  CHECK_ROCSOLVER_STATUS(rocsolver_dgeqrf(handle, A.m, A.n, dA, A.m /*LDA column major*/, dTau));
+  CHECK_ROCSOLVER_STATUS(rocsolver_dorgqr(handle, A.m, A.n, std::min( A.m, A.n), dA, A.m, dTau));
+  
+}
+
+
+
 
 
 
@@ -104,146 +290,9 @@ int set_device(int id) {
 }
 
 
-static inline
-void QR(rocblas_handle handle,
-	Matrix &A,    // the original matrix in the CPU
-	double *dA,  // this will be a pointer in the GPU of the Q of QR 
-	double *dTau // we need the pointer 
-	) {
-  
-  CHECK_ROCSOLVER_STATUS(rocsolver_dgeqrf(handle, A.m, A.n, dA, A.m /*LDA column major*/, dTau));
-  CHECK_ROCSOLVER_STATUS(rocsolver_dorgqr(handle, A.m, A.n, std::min( A.m, A.n), dA, A.m, dTau));
-  
-}
-
-static inline
-void projection(rocblas_handle handle,
-		Matrix   &H, Matrix   &V, Matrix   &T, Matrix &P,
-		double *dH, double *dV, double *dT, double *dP, 
-		) {
-  
-  // T = H * V
-  CHECK_ROCBLAS_STATUS(
-	rocblas_dgemm(handle, 
-		      rocblas_operation_none, rocblas_operation_none, 
-		      H.m, V.n, H.n,                                                  
-		      &alpha, 
-		      dH, H.m, 
-		      dV, V.m, 
-		      &beta, 
-		      dT, T.m)); 
-
-  // P = V^t T 
-  CHECK_ROCBLAS_STATUS(
-	rocblas_dgemm(handle, 
-		      rocblas_operation_transpose, rocblas_operation_none, 
-		      P.m, T.n, T.m,                                                  
-		      &alpha, 
-		      dV, V.m, 
-		      dT, T.m, 
-		      &beta, 
-		      dP, P.m)); 
-  
-
-}
-
-static inline
-void eigenSolver(rocblas_handle handle,
-		 Matrix &A,
-		 double *dA, double *dW, double *dWW,  int *info_device) {
-
-
-  CHECK_ROCSOLVER_STATUS(
-        rocsolver_dsyev(
-			handle,
-			rocblas_evect_original, //rocblas_evect_full, // Jobz: use the enum value
-			rocblas_fill_upper, // Uplo: use the enum value
-			A.n,                  
-			dA,           
-			n,                  
-			dW,
-			dWW,
-			info_device         
-			));
-
-
-}
-
-
-// In-place kernel function
-__global__ void elementwise_mult_broadcast_inplace(int N, int M, 
-                                                   const double* d_a, // Vector [M elements]
-                                                   double* d_b)       // Matrix [N*M elements] - used for both input AND output
-{
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    int col = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (row < N && col < M) {
-        int index = row + col * N;
-        // Read the value, calculate the new value, store it back in the SAME location
-        d_b[index] = d_b[index] * d_a[col]; 
-    }
-}
 
 
 
-/**
- * Kernel for element-wise multiplication with broadcasting.
- * Assumes column-major storage for the matrix.
- * Vector 'd_a' is broadcast across the columns of matrix 'd_b'.
- */
-__global__ void elementwise_mult_broadcast(int N, int M, 
-                                           const double* d_a, // Vector [M elements]
-                                           const double* d_b, // Matrix [N*M elements]
-                                           double* d_c)       // Output Matrix [N*M elements]
-{
-    // Calculate global thread ID in X and Y dimensions (row and column)
-    int row = blockIdx.x * blockDim.x + threadIdx.x;
-    int col = blockIdx.y * blockDim.y + threadIdx.y;
-
-    if (row < N && col < M) {
-        // Index calculation for column-major storage: index = row + col * N
-        
-        double vector_val = d_a[col];      // The value to broadcast for this column
-        double matrix_val = d_b[row + col * N]; // The matrix element
-        
-        d_c[row + col * N] = matrix_val * vector_val;
-    }
-}
-
-void vector_by_natrix(int N, int M, 
-		      const double* d_a, // Vector [M elements]
-		      const double* d_b, // Matrix [N*M elements]
-		      double* d_c) {     // destination
-
-  // 4. Launch the kernel
-  // We launch a 2D grid of threads (N rows * M columns is a safe size)
-  dim3 blocks( (N + 15) / 16, (M + 15) / 16 ); // Example block size calculation
-  dim3 threadsPerBlock(16, 16); 
-  
-  elementwise_mult_broadcast<<<blocks, threadsPerBlock>>>(
-							  N, M, d_a, d_b, d_c
-							  );
-
-
-
-}
-void vector_by_natrix_inplace(int N, int M, 
-		      const double* d_a, // Vector [M elements]
-		      double* d_c) {     // destination
-
-  // 4. Launch the kernel
-  // We launch a 2D grid of threads (N rows * M columns is a safe size)
-  dim3 blocks( (N + 15) / 16, (M + 15) / 16 ); // Example block size calculation
-  dim3 threadsPerBlock(16, 16); 
-  
-  elementwise_mult_broadcast_inplace<<<blocks, threadsPerBlock>>>(
-							  N, M, d_a,  d_c
-							  );
-
-
-
-}
 
 
 #include <rocblas/rocblas.h>
@@ -252,54 +301,7 @@ void vector_by_natrix_inplace(int N, int M,
 
 // ... (HIP_CHECK and ROCBLAS_CHECK macros remain the same) ...
 
-void calculate_norm_on_device(int N,
-			      double* d_vector,
-			      double* d_norm_result,
-			      rocblas_handle handle) {
-    
 
-    // --- CRITICAL STEP: Set the pointer mode to DEVICE ---
-    ROCBLAS_CHECK(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
-
-    int incx = 1;
-
-    // Call the rocBLAS function: the last argument is now a pointer to DEVICE memory
-    rocblas_status status = rocblas_dnrm2(handle, 
-                                          N,             
-                                          d_vector,      
-                                          incx,          
-                                          d_norm_result); // Pass the device pointer
-
-    if (status != rocblas_status_success) {
-        std::cerr << "rocBLAS dnrm2 failed!" << std::endl;
-        // Handle error
-    }
-    
-}
-
-
-
-void calculate_norm(int N, double* d_vector, rocblas_handle handle) {
-    double norm_result_host; // The result is returned to the host
-    int incx = 1;            // Stride for the vector (usually 1 for contiguous data)
-
-    // Call the rocBLAS function
-    rocblas_status status = rocblas_dnrm2(handle, 
-                                          N,             // n: number of elements in the vector
-                                          d_vector,      // x: pointer to the device vector
-                                          incx,          // incx: stride
-                                          &norm_result_host); // result: pointer to host memory for the result
-
-    if (status != rocblas_status_success) {
-        std::cerr << "rocBLAS dnrm2 failed!" << std::endl;
-        // Handle error
-    }
-
-    // Synchronize the stream/device (as the result is copied to the host pointer)
-    HIP_CHECK(hipDeviceSynchronize()); 
-
-    std::cout << "The L2 norm of the vector is: " << norm_result_host << std::endl;
-}
 
 
 		      
@@ -375,8 +377,8 @@ void davidson_rocm( Matrix  H,
     diag[i].value = H.matrix[H.ind(i,i)];
     diag[i].index = i;
   }
-
-  sargsortCpp(diag);
+`
+  argsortCpp(diag);
   
   for (int i=0;i<num_eigs, i++) {
     V.matrix[V.ind(diag[i].index,i)] = 1;
@@ -416,100 +418,91 @@ void davidson_rocm( Matrix  H,
     P.m= P.n =  V.n;
     T.m = V.n;
 
-    // we copy the new subspace 
+    // We copy the new subspace V into GPU  
     CHECK_HIP_ERROR(hipMemcpy(dV,  V.matrix.data(), V.size() * sizeof(double), hipMemcpyHostToDevice));
 
-    projection(handle, H,V,T,P, dH,dV,dT,dP); // P <- V^t * H * V 
 
-    eigenSolver(handle,P, dP, dW, dWW,info_device); // dP has now the eigenvectors and dW the eigenvalue
+    // P <- V^t * H * V projection into a smaller space -> dP is in
+    // Python: T = V.T @ A @ V 
+    // the GPU
+    projection(handle, H,V,T,P, dH,dV,dT,dP); 
 
-    sortarg(P.m,  num_eigs /*P.n*/, dP, dPP, dW, d_perm_indices); // dP is the sorted eigen vectors 
     
-    // V * EigenVectors Called Ritz vectors 
+    // dW has the sorted eigenvalue and dP has the sorted eigenvector 
+    // Python: eig_vals_T, eig_vecs_T = np.linalg.eigh(T) # rocsolver_dsyev_ 
+    eigenSolver(handle,P, dP, dW, dWW,info_device); 
+
+    /* Python: 
+       idx = np.argsort(eig_vals_T)
+       eig_vals_T = eig_vals_T[idx]
+       eig_vecs_T = eig_vecs_T[:, idx]
+    */
+    sortarg(P.m,  num_eigs /*P.n*/, dP, dSP, dW, d_perm_indices); // dPP is the sorted eigen vectors 
+
+    
+    // V * EigenVectors Called Ritz vectors
+    // Python: current_eig_vecs = V @ eig_vecs_T[:, :num_eigs]
     CHECK_ROCBLAS_STATUS(
-	   rocblas_dgemm(handle, 
-			 rocblas_operation_none, rocblas_operation_none, 
-			 V.m, V.n, num_eigs,                                                  
-			 &alpha, 
-			 dV, V.m, 
-			 dSP,P.m, 
-			 &beta, 
-			 dP, P.m));   
+	   rocblas_dgemm(
+	     handle, 
+	     rocblas_operation_none, 
+	     rocblas_operation_none, 
+	     V.m, V.n, num_eigs, // notice the last dimension
+	     &alpha, 
+	     dV, V.m, // lead V
+	     dSP,P.m, // lead EigenVectors 
+	     &beta,   
+	     dP, P.m  // lead P we reuse the projection
+	   )
+     );   
 
-    
-    //  ZGEMM  and ZGEMA 
-    //  residuals = A @ current_eig_vecs -   current_eig_vals * current_eig_vecs
-
-    
-    CHECK_ROCBLAS_STATUS(
-	   rocblas_dgemm(handle, 
-			 rocblas_operation_none, rocblas_operation_none, 
-			 H.m, P.n,num_eigs,                                                  
-			 &alpha, 
-			 dH, H.m, 
-			 dP,P.m, 
-			 &beta, 
-			 dX, X.m)); 
-
-
-    
-
-
-    
-    
-    
-    
-    
-
+    residuals() ;
     
       
 
-
-
-
-
-
     
+    std::vector<double> norms = calculate_norm(num_eigs,H.m,
+					       dX,
+					       d_norms,
+					       handle);
+    int converged_count = 0
+    for ( int i=0; i< num_eigs; i++) 
+      if (norms[i] < tolerance):
+	converged_count += 1;
+
+
+    if (converged_count == num_eigs) {
+      printf("Davidson converged after %d iteration", iteration);
+      CHECK_HIP_ERROR(hipMemcpy(eigenvale.data(), dW, P.n * sizeof(double), hipMemcpyDeviceToHost));
+      CHECK_HIP_ERROR(hipMemcpy(eigenvector.data(), dP, P.size() * sizeof(double), hipMemcpyDeviceToHost));
+      break;
+    }
+    
+    corrections();
+    qr()
   }
+}
     
   
 
+int main(int argc, char* argv[]) {
+  
+  // Method 1: Using atoi (C-style, simpler but less robust)
+  int mydevice  = std::atoi(argv[1]);
+  std::cout << "Integer from atoi: " << mydevice << std::endl;
+  int result = set_device(mydevice);
+  int M = std::atoi(argv[2]);;
+  int n_eng =std::atoi(argv[4]);
 
+  std::vector<double> hH(M * M);    
+  Matrix H = {hH, M,M};
+  
+  davidson_rocm(H,
+		n_eigs,
+		100,
+		1e-8);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  
 }
 
 
