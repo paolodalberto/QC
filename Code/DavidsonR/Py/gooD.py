@@ -31,12 +31,15 @@ def davidson_algorithm(A, num_eigs, max_iterations=100, tolerance=1e-8):
     V = np.zeros((n, num_eigs))
     for i in range(num_eigs):
         V[diag_indices[i], i] = 1.0
-    
+
+
     # Orthonormalize initial subspace
     V, _ = np.linalg.qr(V)
 
-    for iteration in range(max_iterations):
 
+    
+    for iteration in range(max_iterations):
+        print("V shape", V.shape)
         T = V.T @ A @ V # ZGEMM ZGEMM
         # Project A onto the subspace: T = V^T * W
         
@@ -55,6 +58,8 @@ def davidson_algorithm(A, num_eigs, max_iterations=100, tolerance=1e-8):
         # current_eig_vecs = np.dot(V, eig_vecs_T[:, :num_eigs]) # Ritz vectors in full space
         current_eig_vecs = V @ eig_vecs_T[:, :num_eigs] # Ritz vectors in full space
         
+        print(current_eig_vecs.shape, V.shape, eig_vecs_T[:, :num_eigs].shape)
+        
         
         # Calculate residuals R = A*u - lambda*u = W*c - lambda*V*c
         # Easier formula: R = W_k - lambda_k * V_k (where V_k is current ritz vector in full space)
@@ -64,7 +69,7 @@ def davidson_algorithm(A, num_eigs, max_iterations=100, tolerance=1e-8):
         #  ZGEMM  and ZGEMA 
         residuals = A @ current_eig_vecs -   current_eig_vals * current_eig_vecs
         
-        
+        print("residual ", residuals.shape) 
         for i in range(num_eigs):
             if np.linalg.norm(residuals[:, i]) < tolerance:
                 converged_count += 1
@@ -73,11 +78,13 @@ def davidson_algorithm(A, num_eigs, max_iterations=100, tolerance=1e-8):
             print(f"Davidson converged after {iteration + 1} iterations.")
             return current_eig_vals, current_eig_vecs
 
+        import pdb; pdb.set_trace()
         # Compute correction vectors (preconditioning step)
         corrections = np.zeros((n, num_eigs))
         for i in range(num_eigs):
             corrections[:, i] = preconditioner(residuals[:, i], current_eig_vals[i])
-
+        #corrections = residuals
+        
         # Add new correction vectors to the subspace V, then re-orthonormalize
         V = np.hstack((V, corrections))
 
@@ -103,7 +110,7 @@ if __name__ == "__main__":
     eig_vals, eig_vecs = davidson_algorithm(A, num_eigs=3)
     
     print("\nComputed eigenvalues:")
-    print(eig_vals)
+    print(eig_vals,  eig_vecs.shape)
     
     # Verify with standard numpy solver
     true_eig_vals = np.linalg.eigvalsh(A)

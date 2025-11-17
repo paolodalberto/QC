@@ -159,7 +159,7 @@ void corrections(int M, int N_EIG,
 
 
 
-
+#ifdef PREMAIN 
 // --- Main Example Demonstrating the Full Cycle ---
 
 int main() {
@@ -270,3 +270,4 @@ int main() {
 
     return EXIT_SUCCESS;
 }
+#endif

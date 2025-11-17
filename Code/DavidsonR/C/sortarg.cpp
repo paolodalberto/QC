@@ -102,7 +102,7 @@ void sortarg(int N, // number of rows
 
 }
 
-
+#ifdef SORTMAIN
 int main() {
     int N = 3; // rows
     int M = 3; // columns
@@ -167,3 +167,4 @@ int main() {
 
     return 0;
 }
+#endif

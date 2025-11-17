@@ -1,0 +1,49 @@
+
+# Define the C++ compiler (CXX is a standard Make variable)
+CXX = hipcc
+
+# Define the HIP compiler provided by ROCm
+HIP_COMPILER = hipcc
+# ... rest of the file
+
+# Define standard compiler flags for C++14/C++17 compatibility
+HIP_FLAGS = --std=c++17
+
+# Define linker flags to include rocBLAS and rocSOLVER libraries
+# The -l prefix is standard for linking libraries
+# Assuming libraries are in the default ROCm path (/opt/rocm/lib) which hipcc knows
+LIBRARIES = -lrocblas -lrocsolver
+
+# List of source files (davidson.cpp is the main file with 'main()')
+SOURCES = sortarg.cpp preconditioning.cpp davidson.cpp 
+
+# Define the final executable name
+EXECUTABLE = davidson
+
+# Generate a list of required object files from the source files (e.g., davidson.o, sortarg.o, ...)
+OBJECTS = $(SOURCES:.cpp=.o)
+
+# Default target: builds the final executable
+all: $(EXECUTABLE)
+
+# Rule to link all object files and libraries into the final executable
+# $^ automatically lists all prerequisites (all .o files)
+$(EXECUTABLE): $(OBJECTS)
+	@echo "------------------------------------------------------"
+	@echo "Linking object files into the final executable: $@"
+	$(HIP_COMPILER) $(HIP_FLAGS) $^ $(LIBRARIES) -o $@
+	@echo "------------------------------------------------------"
+
+# Pattern rule for building each object file from its corresponding source file
+# The -c flag tells the compiler to stop after compilation and not link
+%: %.cpp
+	@echo "------------------------------------------------------"
+	@echo "Compiling $< to object file $@"
+	$(HIP_COMPILER) $(HIP_FLAGS) -c $< -o $@
+	@echo "------------------------------------------------------"
+
+# Clean target: removes compiled executables and object files
+clean:
+	@echo "Cleaning up build artifacts..."
+	rm -f $(EXECUTABLE) $(OBJECTS)
+	@echo "Cleanup complete."
