@@ -99,15 +99,19 @@ def davidson_algorithm(A, num_eigs, max_iterations=100, tolerance=1e-8):
 # Example usage:
 if __name__ == "__main__":
     # Create a large, sparse, diagonally dominant matrix
-    N = 100
+    N = 10
     np.random.seed(0)
     A = np.diag(np.arange(1, N + 1).astype(float))
     # Add some small off-diagonal elements
-    A += np.random.rand(N, N) * 0.001
-    A = (A + A.T) / 2 # Ensure symmetry
+    for i in range(0,N):
+        for j in range(i,N):
+            A[i,j] = 1.0/(i+j+2)
+            A[j,i] = 1.0/(i+j+2)
+        
     
+    print(A)
     # Compute the lowest 3 eigenvalues
-    eig_vals, eig_vecs = davidson_algorithm(A, num_eigs=3)
+    eig_vals, eig_vecs = davidson_algorithm(A, num_eigs=2)
     
     print("\nComputed eigenvalues:")
     print(eig_vals,  eig_vecs.shape)

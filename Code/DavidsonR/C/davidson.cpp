@@ -324,6 +324,8 @@ void QR(rocblas_handle handle,
 	Matrix &A,    // the original matrix in the CPU
 	Matrix &Tau // we need the pointer 
 	) {
+  printf("A "); A.print();
+  printf("Tau "); Tau.print();
   
   CHECK_ROCBLAS_STATUS(rocsolver_dgeqrf(handle, A.m, A.n, A.d_matrix, A.m /*LDA column major*/, Tau.d_matrix));
   CHECK_ROCBLAS_STATUS(rocsolver_dorgqr(handle, A.m, A.n, std::min( A.m, A.n), A.d_matrix, A.m, Tau.d_matrix));
@@ -495,17 +497,18 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   CHECK_HIP_ERROR(hipMalloc(&info_device, sizeof(int)));        // solver burfing 
 
   printf(" start loop  \n");
-  
+  V.writetodevice();  
   for (int iteration=0; iteration<max_iterations; iteration++) {
 
-    V.writetodevice();
+
+    V.readfromdevice(); printf("V "); V.print(true);
     R.n = V.n; 
     P.m= P.n =  V.n;
     T.n = V.n;
     EVa.m = V.n;
     EVe_sorted.m = EVe_sorted.n = V.n;
 
-
+    
     
     printf(" Projection  \n");
 
@@ -513,7 +516,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     // Python: P = V.T @ (T = H @ V) 
     // the GPU 
     projection(handle, H,V,T,P); 
-
+    
+    P.readfromdevice(); P.print(true);
     printf(" Eigen solver \n");
     
     // dW has the sorted eigenvalue and dP has the sorted eigenvector 
@@ -566,7 +570,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     //          P = H@X -  d_eig_vals*X
     residuals(handle,H,T, EVa,TT,R,num_eigs) ;
     
-      
+    R.readfromdevice(); printf("R"); P.print(true);
 
     printf(" Norms  \n");
 
@@ -575,10 +579,11 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 					       d_norms,
 					       handle);
     int converged_count = 0;
-    for ( int i=0; i< num_eigs; i++) 
+    for ( int i=0; i< num_eigs; i++) { 
+      printf("Norm[%d]= %f \n", i,norms[i]);
       if (norms[i] < tolerance)
 	converged_count += 1;
-
+    }
 
     if (converged_count == num_eigs) {
       printf("Davidson converged after %d iteration", iteration);
@@ -648,7 +653,7 @@ int main(int argc, char* argv[]) {
     
   davidson_rocm(H,
 		n_eng,
-		100,
+		3,
 		1e-8);
 
   
