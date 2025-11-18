@@ -562,6 +562,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 	   )
      );
 
+    T.readfromdevice(); printf("T"); T.print(true);
 
     printf(" Residual  \n");
     

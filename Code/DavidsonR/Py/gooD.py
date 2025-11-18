@@ -104,7 +104,8 @@ if __name__ == "__main__":
     A = np.diag(np.arange(1, N + 1).astype(float))
     # Add some small off-diagonal elements
     for i in range(0,N):
-        for j in range(i,N):
+        A[i,i] = i+1
+        for j in range(i+1,N):
             A[i,j] = 1.0/(i+j+2)
             A[j,i] = 1.0/(i+j+2)
         
