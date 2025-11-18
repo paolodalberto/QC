@@ -49,7 +49,8 @@ struct matrix {
     if (d_matrix) CHECK_HIP_ERROR(hipFree(d_matrix));
   }
   void alloc(bool host , bool device  ) {
-    if (size()>0) { 
+    if (size()>0) {
+      printf(" Allocated %d * %d = %d elements \n", M, N,M*N);
       if (host)   matrix = (double*) std::calloc(M*N,sizeof(double));
       if (device) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(double)));		      
     }
@@ -262,7 +263,7 @@ calculate_norm(
   std::vector<double> h_norms(N);
   
   // Set pointer mode to device, as results are stored on the device
-  CHECK_ROCBLAS_STATUS(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
+  //  CHECK_ROCBLAS_STATUS(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
   
   // --- rocBLAS Call (Strided Batched NRM2) ---
   std::cout << "Calling rocblas_dnrm2_strided_batched..." << std::endl;
@@ -459,7 +460,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   std::vector<struct Value_Index> diag(H.n);
 
   Matrix D   = {H.m,1,H.m,1};
-  Matrix Tau = {H.m,1,H.m,1 };
+  Matrix Tau = {M,1,M,1 };
 
   D.alloc(true,true);
   Tau.alloc(false,true); // required for QR
@@ -499,9 +500,10 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   printf(" start loop  \n");
   V.writetodevice();  
   for (int iteration=0; iteration<max_iterations; iteration++) {
+    //V.readfromdevice(); printf("V "); V.print(true);
+    //V.writetodevice();  
 
 
-    V.readfromdevice(); printf("V "); V.print(true);
     R.n = V.n; 
     P.m= P.n =  V.n;
     T.n = V.n;
@@ -544,7 +546,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     printf(" Ritz \n");
     printf("V"); V.print();
     printf("E");  EVe_sorted.print();
-    printf("T"); T.print();
+
+    printf("T"); T.print(true);
     
     // V * EigenVectors Called Ritz vectors
     // Python: current_eig_vecs = V @ eig_vecs_T[:, :num_eigs]
@@ -561,27 +564,38 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 	     T.d_matrix, T.m  // Ritz 
 	   )
      );
-
-    T.readfromdevice(); printf("T"); T.print(true);
+    
+    
+    T.readfromdevice(); printf("After T"); T.print(true);
 
     printf(" Residual  \n");
+    
     
     // =======================================================
     // PHASE 1: COMPUTE RESIDUALS d_HX = d_H*d_X
     //          P = H@X -  d_eig_vals*X
+    printf("H "); H.print();
+    printf("T "); T.print();
+    printf("Eva "); EVa.print();
+    printf("R "); R.print(true);
     residuals(handle,H,T, EVa,TT,R,num_eigs) ;
-    
-    R.readfromdevice(); printf("R"); P.print(true);
+    R.readfromdevice(); printf("R"); R.print(true);
 
+
+
+    
     printf(" Norms  \n");
 
     std::vector<double> norms = calculate_norm(num_eigs,H.m,
 					       R.d_matrix,
 					       d_norms,
 					       handle);
+
+
+    projection(handle, H,V,T,P); 
     int converged_count = 0;
     for ( int i=0; i< num_eigs; i++) { 
-      printf("Norm[%d]= %f \n", i,norms[i]);
+      printf("Norm[%d]= %f vs %f \n", i,norms[i], tolerance);
       if (norms[i] < tolerance)
 	converged_count += 1;
     }
@@ -600,6 +614,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     printf(" QR  \n");
 
     QR(handle,V,Tau);
+
   }
 
 
@@ -654,7 +669,7 @@ int main(int argc, char* argv[]) {
     
   davidson_rocm(H,
 		n_eng,
-		3,
+		7,
 		1e-8);
 
   
