@@ -86,7 +86,8 @@ struct matrix {
     if (t)
 	for (int i = 0; i < MM; ++i) {
 	  for (int j = 0; j < NN; ++j) {
-	    printf("%0.1f ", matrix[ind(i,j)]);
+	    //printf("%0.2f %d %d %d ", matrix[ind(i,j)],i,j,ind(i,j));
+	    printf("%0.2f ", matrix[ind(i,j)]);
 	}
 	printf("\n");
       }
@@ -634,14 +635,16 @@ int main(int argc, char* argv[]) {
   H.zero();
   for (int i = 0; i<M; i++) {
     H.matrix[H.ind(i,i)] = i+1;
+    printf(" i %d index %d M %f \n", i, H.ind(i,i), H.matrix[H.ind(i,i)]);
   }
-  for (int i = 1; i<M; i++) {
-    for (int j = i; j<M; j++) {
-      H.matrix[H.ind(i,j)] = 1/(i+2);
-      H.matrix[H.ind(j,i)] = 1/(i+2);
+  for (int i = 0; i<M; i++) {
+    for (int j = i+1; j<M; j++) {
+      H.matrix[H.ind(i,j)] = 1.0/(i+j+2);
+      H.matrix[H.ind(j,i)] = 1.0/(i+j+2);
     }
   }
-  
+
+  H.print(true);
     
   davidson_rocm(H,
 		n_eng,
