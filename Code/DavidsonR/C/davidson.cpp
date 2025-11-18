@@ -10,7 +10,7 @@
 #include <hip/hip_runtime.h>
 #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
-
+#include <cstdlib> 
 
 /// Miscellaneous errors  
 
@@ -37,12 +37,30 @@
 struct matrix {
 
   // struct as a class members are all public
-  double *matrix; // host  
   int m;                       // rows
   int n;                       // cols
-  double *d_matrix;            // device
+  int M;                       // Maximum rows LD
+  int N;                       // Maximum cols
+  double *matrix = 0; // host  
+  double *d_matrix =0;            // device
 
+  void free() {
+    if (matrix) std::free(matrix);
+    if (d_matrix) CHECK_HIP_ERROR(hipFree(d_matrix));
+  }
+  void alloc(bool host , bool device  ) {
+    if (size()>0) { 
+      if (host)   matrix = (double*) std::calloc(M*N,sizeof(double));
+      if (device) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(double)));		      
+    }
+  }
+  void readfromdevice() {
+         CHECK_HIP_ERROR(hipMemcpy(matrix , d_matrix, size() * sizeof(double), hipMemcpyHostToDevice));
+  }
+  void writetodevice() {
+         CHECK_HIP_ERROR(hipMemcpy(d_matrix , matrix, size() * sizeof(double), hipMemcpyHostToDevice));
 
+  }
   // functions 
   // Host-side matrix multiplication for verification (optional)
   void (*gemm)(struct matrix &C, double beta, struct matrix &A, struct matrix &B, double alpha);
@@ -402,28 +420,29 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 
   int M = std::min(num_eigs*max_iterations, H.n); // H is square? 
 
-  
-  double v_array[H.size()];
-
   // projections 
-  Matrix V = {v_array,H.m, num_eigs};  // projection matrix 
-  Matrix T = {0, H.m,V.n};       // H*V
-  Matrix TT = {0, H.m,V.n};       // 
-  Matrix R  = {0, H.m,V.n};       // 
-  Matrix P = {0,V.n,V.n};        // projected  V^t * E
+  Matrix V  = {H.m, num_eigs, H.m, M};  // projection matrix 
+  Matrix T  = {H.m, V.n, H.m, M     };  // H*V
+  Matrix TT = {H.m, V.n, H.m, M};       // 
+  Matrix R  = {H.m, V.n, H.m, M};       // 
+  Matrix P  = {V.n, V.n, M,M};        // projected  V^t * E
+
+
+  V.alloc(true,true);
+  P.alloc(true,true);  // Projection
+  T.alloc(true,true);  // temp H*V
+  TT.alloc(true,true); // Another temp 
+  R.alloc(true,true);  // Residuals  
 
   // Eigensolver
-  double eigen_values[num_eigs];
-  double eigen_vectors[num_eigs*H.m];
+  Matrix EVa  = {H.n ,1,M ,1 };    // Eigenvalues
+  Matrix Work = {P.m ,P.n,M ,M };  // Eigenvalues 
+  Matrix EVe_sorted = {P.m, P.n, M, M};  // Sorted 
 
-  Matrix EVa = {eigen_values,H.m ,1};    // Eigenvalues
-  Matrix Work = {0,H.m ,1};    // Eigenvalues 
-  Matrix EVe_sorted = {eigen_vectors,H.m, H.n};  // Sorted 
-
-
+  EVa.alloc(true,true);
+  Work.alloc(true,true);
+  EVe_sorted.alloc(true,true);
   
-  V.zero();
-
   // This is what should be 
   
   //  # Initial guess vectors (e.g., identity matrix columns corresponding to lowest diagonal elements)
@@ -435,15 +454,20 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 
 
   std::vector<struct Value_Index> diag(H.n);
+
+  Matrix D   = {H.m,1,H.m,1};
+  Matrix Tau = {H.m,1,H.m,1 };
+
+  D.alloc(true,true);
+  Tau.alloc(false,true); // required for QR
+
   double diagonal[H.n];
   for (int i=0;i<H.m; i++) {
     diag[i].value = H.matrix[H.ind(i,i)];
-    diagonal[i] = H.matrix[H.ind(i,i)];
+    D.matrix[i]   = H.matrix[H.ind(i,i)];
     diag[i].index = i;
   }
 
-  Matrix D = {diagonal, H.m,1};
-  Matrix Tau = {0, H.m,1};
   
   printf(" Sorting \n");
   argsortCpp(diag);
@@ -452,56 +476,36 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     V.matrix[V.ind(diag[i].index,i)] = 1;
   }
 
+  printf(" Move D \n");
+  D.writetodevice();
+  printf(" Move H \n");
+  H.writetodevice();
 
-  printf(" Allocating  \n");
-  // We copy H into GPU  
-  CHECK_HIP_ERROR(hipMalloc(&H.d_matrix, H.size()* sizeof(double)));
-  CHECK_HIP_ERROR(hipMemcpy(H.d_matrix , H.matrix, H.size() * sizeof(double), hipMemcpyHostToDevice));
-  CHECK_HIP_ERROR(hipMalloc(&D.d_matrix, D.size()* sizeof(double)));
-  CHECK_HIP_ERROR(hipMemcpy(D.d_matrix , D.matrix, D.size() * sizeof(double), hipMemcpyHostToDevice));
-
-  // This is needed by the QR
-  CHECK_HIP_ERROR(hipMalloc(&Tau.d_matrix, Tau.size()* sizeof(double)));
-  int *d_perm_indices;
-  CHECK_HIP_ERROR(hipMalloc(&d_perm_indices, H.m* sizeof(double)));
-  
-
-  // We allocate the largest V and copy the new subspace V into GPU  
-  CHECK_HIP_ERROR(hipMalloc(&V.d_matrix,H.m*M* sizeof(double)));
-  CHECK_HIP_ERROR(hipMemcpy(V.d_matrix,  V.matrix, V.size() * sizeof(double), hipMemcpyHostToDevice));
-  
-  
-  int *info_device;
+  printf(" Move D and H \n");
   double alpha = 1.0;
   double beta = 0.0;
+  int *d_perm_indices;
+  int *info_device;
   double *d_norms;
   const double epsilon = 1e-12;
   
-  // We allocate the largest P = V^t * H * V we can afford once
-  CHECK_HIP_ERROR(hipMalloc(&d_norms, num_eigs* sizeof(double)));         // Projection -> eigenvectors  
-  CHECK_HIP_ERROR(hipMalloc(&P.d_matrix, M*M* sizeof(double)));         // Projection -> eigenvectors  
-  CHECK_HIP_ERROR(hipMalloc(&T.d_matrix, H.m*M* sizeof(double)));       // temp
-  CHECK_HIP_ERROR(hipMalloc(&TT.d_matrix, H.m*M* sizeof(double)));       // temp
-  CHECK_HIP_ERROR(hipMalloc(&R.d_matrix, H.m*M* sizeof(double)));       // temp
-  // We allocate the largest T = H*V we can afford once
-  
-
-  // 2. Allocate device memory Eigen solver
-  CHECK_HIP_ERROR(hipMalloc(&EVa.d_matrix,EVa.size()*sizeof(double)));    // Eigen value
-  CHECK_HIP_ERROR(hipMalloc(&EVe_sorted.d_matrix,EVe_sorted.size()*sizeof(double)));    // Eigen vector sorted
-
-  CHECK_HIP_ERROR(hipMalloc(&Work.d_matrix, Work.size()*sizeof(double))); // work space 
+  CHECK_HIP_ERROR(hipMalloc(&d_perm_indices, H.m* sizeof(double))); 
+  CHECK_HIP_ERROR(hipMalloc(&d_norms, num_eigs* sizeof(double)));         
   CHECK_HIP_ERROR(hipMalloc(&info_device, sizeof(int)));        // solver burfing 
 
   printf(" start loop  \n");
   
   for (int iteration=0; iteration<max_iterations; iteration++) {
+
+    V.writetodevice();
     R.n = V.n; 
     P.m= P.n =  V.n;
     T.n = V.n;
     EVa.m = V.n;
     EVe_sorted.m = EVe_sorted.n = V.n;
 
+
+    
     printf(" Projection  \n");
 
     // P <- V^t * (T= H * V) projection into a smaller space -> dP is in
@@ -591,21 +595,23 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     QR(handle,V,Tau);
   }
 
-  CHECK_HIP_ERROR(hipFree(H.d_matrix));
-  CHECK_HIP_ERROR(hipFree(D.d_matrix));
-  CHECK_HIP_ERROR(hipFree(Tau.d_matrix));
+
+
   CHECK_HIP_ERROR(hipFree(d_perm_indices));
-  CHECK_HIP_ERROR(hipFree(V.d_matrix));
   CHECK_HIP_ERROR(hipFree(d_norms));
-  CHECK_HIP_ERROR(hipFree(P.d_matrix));
-  CHECK_HIP_ERROR(hipFree(T.d_matrix));
-  CHECK_HIP_ERROR(hipFree(TT.d_matrix));
-  CHECK_HIP_ERROR(hipFree(R.d_matrix));
-  CHECK_HIP_ERROR(hipFree(EVa.d_matrix));
-  CHECK_HIP_ERROR(hipFree(EVe_sorted.d_matrix));
-  CHECK_HIP_ERROR(hipFree(Work.d_matrix));
   CHECK_HIP_ERROR(hipFree(info_device));
 
+  Tau.free();
+  D.free();
+  EVe_sorted.free();
+  Work.free();
+  EVa.free();
+  R.free();
+  TT.free();
+  T.free();
+  P.free();
+  V.free();
+  H.free();
   
 }
     
@@ -621,12 +627,19 @@ int main(int argc, char* argv[]) {
   int n_eng =std::atoi(argv[3]);
 
   
-  double hH[M * M];    
-  Matrix H = {hH, M,M};
+
+  Matrix H = {M,M,M,M};
+  H.alloc(true,true);
 
   H.zero();
   for (int i = 0; i<M; i++) {
     H.matrix[H.ind(i,i)] = i+1;
+  }
+  for (int i = 1; i<M; i++) {
+    for (int j = i; j<M; j++) {
+      H.matrix[H.ind(i,j)] = 1/(i+2);
+      H.matrix[H.ind(j,i)] = 1/(i+2);
+    }
   }
   
     
