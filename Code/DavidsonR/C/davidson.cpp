@@ -4,6 +4,10 @@
  ***/
 
 
+
+
+
+
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -50,7 +54,7 @@ struct matrix {
   }
   void alloc(bool host , bool device  ) {
     if (size()>0) {
-      printf(" Allocated %d * %d = %d elements \n", M, N,M*N);
+      //printf(" Allocated %d * %d = %d elements \n", M, N,M*N);
       if (host)   matrix = (double*) std::calloc(M*N,sizeof(double));
       if (device) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(double)));		      
     }
@@ -88,7 +92,7 @@ struct matrix {
 	for (int i = 0; i < MM; ++i) {
 	  for (int j = 0; j < NN; ++j) {
 	    //printf("%0.2f %d %d %d ", matrix[ind(i,j)],i,j,ind(i,j));
-	    printf("%0.2f ", matrix[ind(i,j)]);
+	    printf("%e ", matrix[ind(i,j)]);
 	}
 	printf("\n");
       }
@@ -128,9 +132,9 @@ void projection(rocblas_handle handle,
 ) {
 
 
-  printf("H \n"); H.print();
-  printf("V \n"); V.print();
-  printf("T \n"); T.print();
+  //printf("H \n"); H.print();
+  //printf("V \n"); V.print();
+  //printf("T \n"); T.print();
   // T = H * V
   CHECK_ROCBLAS_STATUS(
 	rocblas_dgemm(handle, 
@@ -142,7 +146,7 @@ void projection(rocblas_handle handle,
 		      &beta, 
 		      T.d_matrix, T.m)); 
 
-  printf("P \n"); P.print();
+  //printf("P \n"); P.print();
   // P = V^t T 
   CHECK_ROCBLAS_STATUS(
 	rocblas_dgemm(handle, 
@@ -266,7 +270,7 @@ calculate_norm(
   //  CHECK_ROCBLAS_STATUS(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
   
   // --- rocBLAS Call (Strided Batched NRM2) ---
-  std::cout << "Calling rocblas_dnrm2_strided_batched..." << std::endl;
+  //std::cout << "Calling rocblas_dnrm2_strided_batched..." << std::endl;
   CHECK_ROCBLAS_STATUS(
 	 rocblas_dnrm2_strided_batched(
 	         handle,
@@ -302,10 +306,10 @@ extern void corrections(int M, int N_EIG,
 
 void corrections_stack(Matrix &R, Matrix &D, Matrix &EVa, Matrix &T, const double epsilon, int N_EIG) {
   
-  printf("R "); R.print();
-  printf("D "); D.print();
-  printf("EVa "); EVa.print();
-  printf("T "); T.print();
+  //printf("R "); R.print();
+  //printf("D "); D.print();
+  //printf("EVa "); EVa.print();
+  //printf("T "); T.print();
   corrections(R.m,  N_EIG, R.d_matrix, D.d_matrix, EVa.d_matrix,
 	      T.d_matrix + T.m*(T.n), // stack them 
 	      epsilon);
@@ -325,8 +329,8 @@ void QR(rocblas_handle handle,
 	Matrix &A,    // the original matrix in the CPU
 	Matrix &Tau // we need the pointer 
 	) {
-  printf("A "); A.print();
-  printf("Tau "); Tau.print();
+  //printf("A "); A.print();
+  //printf("Tau "); Tau.print();
   
   CHECK_ROCBLAS_STATUS(rocsolver_dgeqrf(handle, A.m, A.n, A.d_matrix, A.m /*LDA column major*/, Tau.d_matrix));
   CHECK_ROCBLAS_STATUS(rocsolver_dorgqr(handle, A.m, A.n, std::min( A.m, A.n), A.d_matrix, A.m, Tau.d_matrix));
@@ -417,7 +421,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 		    int max_iterations=100,
 		    double tolerance=1e-8) {
 
-  printf(" davidson  \n");
+  int debug = 0;
+  if (1 || debug) printf(" davidson  %d %d \n",num_eigs,max_iterations);
   // Create rocBLAS handle
   rocblas_handle handle;
   CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
@@ -432,11 +437,11 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   Matrix P  = {V.n, V.n, M,M};        // projected  V^t * E
 
 
-  V.alloc(true,true);
-  P.alloc(true,true);  // Projection
-  T.alloc(true,true);  // temp H*V
-  TT.alloc(true,true); // Another temp 
-  R.alloc(true,true);  // Residuals  
+  V.alloc(true,true);  // Starting V 
+  P.alloc(false,true);  // Projection V^T H V 
+  T.alloc(false,true);  // temp -- H*V 
+  TT.alloc(false,true); // Another temp 
+  R.alloc(false,true);  // Residuals  
 
   // Eigensolver
   Matrix EVa  = {H.n ,1,M ,1 };    // Eigenvalues
@@ -444,7 +449,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   Matrix EVe_sorted = {P.m, P.n, M, M};  // Sorted 
 
   EVa.alloc(true,true);
-  Work.alloc(true,true);
+  Work.alloc(false,true);
   EVe_sorted.alloc(true,true);
   
   // This is what should be 
@@ -473,19 +478,19 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   }
 
   
-  printf(" Sorting \n");
+  if (debug) printf(" Sorting \n");
   argsortCpp(diag);
   
   for (int i=0;i<num_eigs; i++) {
     V.matrix[V.ind(diag[i].index,i)] = 1;
   }
-
-  printf(" Move D \n");
+  
+  if (debug) printf(" Move D \n");
   D.writetodevice();
-  printf(" Move H \n");
+  if (debug) printf(" Move H \n");
   H.writetodevice();
 
-  printf(" Move D and H \n");
+  if (debug) printf(" Move D and H \n");
   double alpha = 1.0;
   double beta = 0.0;
   int *d_perm_indices;
@@ -497,7 +502,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   CHECK_HIP_ERROR(hipMalloc(&d_norms, num_eigs* sizeof(double)));         
   CHECK_HIP_ERROR(hipMalloc(&info_device, sizeof(int)));        // solver burfing 
 
-  printf(" start loop  \n");
+  if (debug) printf(" start loop  \n");
   V.writetodevice();  
   for (int iteration=0; iteration<max_iterations; iteration++) {
     //V.readfromdevice(); printf("V "); V.print(true);
@@ -510,44 +515,40 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
     EVa.m = V.n;
     EVe_sorted.m = EVe_sorted.n = V.n;
 
-    
-    
-    printf(" Projection  \n");
-
+    if (debug) printf(" Projection  \n");
     // P <- V^t * (T= H * V) projection into a smaller space -> dP is in
     // Python: P = V.T @ (T = H @ V) 
     // the GPU 
     projection(handle, H,V,T,P); 
     
-    P.readfromdevice(); P.print(true);
-    printf(" Eigen solver \n");
+    //P.readfromdevice(); P.print(true);
+    if (debug) printf(" Eigen solver \n");
     
     // dW has the sorted eigenvalue and dP has the sorted eigenvector 
     // Python: eig_vals_T, eig_vecs_T = np.linalg.eigh(T) # rocsolver_dsyev_ 
     eigenSolver(handle,P, EVa, Work,info_device);  
-    printf("P "); P.print();
-    printf("E "); EVa.print();
+
     /* Python: 
        idx = np.argsort(eig_vals_T)
        eig_vals_T = eig_vals_T[idx]
        eig_vecs_T = eig_vecs_T[:, idx]
     */
 
-    printf(" Sort arg  \n");
+    if (debug) printf(" Sort arg  \n");
     
     sortarg(P,  EVe_sorted, EVa, d_perm_indices); // dPP is the sorted eigen vectors 
-    printf("P "); P.print();
-    printf("E "); EVa.print();
-    printf("E_S "); EVe_sorted.print();
+    
     EVe_sorted.n =  num_eigs;
     EVa.m =  num_eigs;
-    
-    
-    printf(" Ritz \n");
-    printf("V"); V.print();
-    printf("E");  EVe_sorted.print();
 
-    printf("T"); T.print(true);
+    //EVa.readfromdevice();
+    //EVe_sorted.readfromdevice();
+    //EVa.print(true);
+    //EVe_sorted.print(true);
+
+    
+    
+    if (debug) printf(" Ritz \n");
     
     // V * EigenVectors Called Ritz vectors
     // Python: current_eig_vecs = V @ eig_vecs_T[:, :num_eigs]
@@ -566,25 +567,18 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
      );
     
     
-    T.readfromdevice(); printf("After T"); T.print(true);
+    //T.readfromdevice(); printf("After T"); T.print(true);
 
-    printf(" Residual  \n");
+    if (debug) printf(" Residual  \n");
     
     
     // =======================================================
     // PHASE 1: COMPUTE RESIDUALS d_HX = d_H*d_X
     //          P = H@X -  d_eig_vals*X
-    printf("H "); H.print();
-    printf("T "); T.print();
-    printf("Eva "); EVa.print();
-    printf("R "); R.print(true);
+
     residuals(handle,H,T, EVa,TT,R,num_eigs) ;
-    R.readfromdevice(); printf("R"); R.print(true);
-
-
-
     
-    printf(" Norms  \n");
+    if (debug) printf(" Norms  \n");
 
     std::vector<double> norms = calculate_norm(num_eigs,H.m,
 					       R.d_matrix,
@@ -594,26 +588,31 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 
     projection(handle, H,V,T,P); 
     int converged_count = 0;
+    //printf(" Iteration %d \n",iteration); 
     for ( int i=0; i< num_eigs; i++) { 
-      printf("Norm[%d]= %f vs %f \n", i,norms[i], tolerance);
+      //printf("Norm[%d]= %e vs %e \n", i,norms[i], tolerance);
       if (norms[i] < tolerance)
 	converged_count += 1;
     }
 
     if (converged_count == num_eigs) {
-      printf("Davidson converged after %d iteration", iteration);
+      printf("Davidson converged after %d iteration\n", iteration);
 
-      CHECK_HIP_ERROR(hipMemcpy(EVa.d_matrix, EVa.matrix ,  num_eigs* sizeof(double), hipMemcpyDeviceToHost));
-      CHECK_HIP_ERROR(hipMemcpy(EVe_sorted.d_matrix,EVe_sorted.matrix, EVe_sorted.m*num_eigs* sizeof(double), hipMemcpyDeviceToHost));
-      EVa.print(true);
+      EVa.readfromdevice();
+      EVe_sorted.readfromdevice();
+      for (int i=0; i<num_eigs; i++)
+	printf(" %d %e \n",i,EVa.matrix[i]);
+      //EVe_sorted.print(true);
       break;
     }
-    printf(" Corrections \n");
+    
+    if (debug) printf(" Corrections \n");
     corrections_stack(R,D,EVa,V,epsilon,num_eigs);
-
-    printf(" QR  \n");
-
-    QR(handle,V,Tau);
+    
+    if (debug) printf(" QR  \n");
+    
+    QR(handle,V,Tau); // V is input and output ,
+    // Tau is used as temporary space ...
 
   }
 
@@ -633,22 +632,72 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   T.free();
   P.free();
   V.free();
-  H.free();
+
+  CHECK_ROCBLAS_STATUS(rocblas_destroy_handle(handle));
   
 }
     
+void normal(Matrix H,int n_eng) {
+  int *info_device;
+  rocblas_handle handle;
+  int *d_perm_indices;
+
+  H.writetodevice();
+  CHECK_HIP_ERROR(hipMalloc(&d_perm_indices, H.m* sizeof(double)));
+  CHECK_HIP_ERROR(hipMalloc(&info_device, sizeof(int)));        // solver burfing 
+  CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
+
+  Matrix EVa  = {H.n ,1,H.n ,1 };    // Eigenvalues
+  Matrix Work = {H.m ,H.n, H.m,H.m };  // Eigenvalues 
+  Matrix EVe_sorted = {H.m, H.n,H.m, H.n,};  // Sorted 
+
   
+  EVa.alloc(true,true);
+  Work.alloc(false,true);
+  EVe_sorted.alloc(true,true);
+  
+  eigenSolver(handle,H, EVa, Work,info_device); 
+  sortarg(H,  EVe_sorted, EVa, d_perm_indices); // 
+
+  EVa.readfromdevice();
+  EVe_sorted.readfromdevice();
+  printf(" Normal \n");
+  for (int i=0; i<n_eng; i++)
+    printf(" %d %e \n",i,EVa.matrix[i]);
+
+
+  EVa.free();
+  Work.free();
+  EVe_sorted.free();
+  CHECK_HIP_ERROR(hipFree(d_perm_indices));
+  CHECK_HIP_ERROR(hipFree(info_device));
+  
+  
+}
+
+
+#include <iostream>
+#include <chrono>
+#include <thread> // For std::this_thread::sleep_for
+
+void longRunningFunction() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Simulate work
+}
+
+
+
 
 int main(int argc, char* argv[]) {
   
   // Method 1: Using atoi (C-style, simpler but less robust)
-  int mydevice  = std::atoi(argv[1]);
+  int mydevice  = (argc>1)? std::atoi(argv[1]):0;
   std::cout << "Integer from atoi: " << mydevice << std::endl;
-  int result = set_device(mydevice);
-  int M = std::atoi(argv[2]);;
-  int n_eng =std::atoi(argv[3]);
-
+  int result =  set_device(mydevice);
+  int M = (argc>2)? std::atoi(argv[2]):1000;
+  int n_eng =  (argc>3)?std::atoi(argv[3]):1;
+  int it    = (argc>4)?std::atoi(argv[4]):3;  
   
+  printf(" device: %d M: %d n_eng: %d it: %d \n", mydevice, M, n_eng, it); 
 
   Matrix H = {M,M,M,M};
   H.alloc(true,true);
@@ -656,7 +705,7 @@ int main(int argc, char* argv[]) {
   H.zero();
   for (int i = 0; i<M; i++) {
     H.matrix[H.ind(i,i)] = i+1;
-    printf(" i %d index %d M %f \n", i, H.ind(i,i), H.matrix[H.ind(i,i)]);
+    //printf(" i %d index %d M %f \n", i, H.ind(i,i), H.matrix[H.ind(i,i)]);
   }
   for (int i = 0; i<M; i++) {
     for (int j = i+1; j<M; j++) {
@@ -665,13 +714,33 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  H.print(true);
-    
+  //H.print(true);
+
+  // Record start time
+  auto start = std::chrono::high_resolution_clock::now();
+
   davidson_rocm(H,
 		n_eng,
-		7,
+		std::min(it, H.m/n_eng),
 		1e-8);
 
+  // Record end time
+  auto end = std::chrono::high_resolution_clock::now();
+  
+  // Calculate duration in seconds
+  std::chrono::duration<double> elapsed_seconds = end - start;
+  
+  // Output the elapsed time
+  std::cout << "davidson: " << elapsed_seconds.count() << " seconds.\n";
+  if (0) {
+    start = std::chrono::high_resolution_clock::now();
+    normal(H,n_eng);
+    end = std::chrono::high_resolution_clock::now();
+    elapsed_seconds = end - start;
+    std::cout << "normal: " << elapsed_seconds.count() << " seconds.\n";
+  }
+  H.free();
+  
   
 }
 

@@ -89,7 +89,7 @@ void residuals(rocblas_handle handle,
     // =======================================================
     // PHASE 1: COMPUTE RESIDUALS R = H*X - Lambda*X (Batched)
     // =======================================================
-    std::cout << "Calculating Residual Vectors R = H*X - lambda*X" << std::endl;
+    //std::cout << "Calculating Residual Vectors R = H*X - lambda*X" << std::endl;
 
     // 1a. Compute d_HX_inter = H * X using rocblas_dgemm
     double alpha_dgemm = 1.0;
@@ -133,7 +133,7 @@ void corrections(int M, int N_EIG,
     // =======================================================
     // PHASE 2: COMPUTE CORRECTIONS T using the Preconditioner (Batched)
     // =======================================================
-    std::cout << "Calculating Correction Vectors T using Batched Preconditioner..." << std::endl;
+    //std::cout << "Calculating Correction Vectors T using Batched Preconditioner..." << std::endl;
 
 
     dim3 threadsPerBlock_T(16, 16);
@@ -152,7 +152,7 @@ void corrections(int M, int N_EIG,
     );
     CHECK_HIP_ERROR(hipGetLastError());
     CHECK_HIP_ERROR(hipDeviceSynchronize()); 
-    std::cout << "Preconditioning complete. Correction matrix T is in device memory d_T." << std::endl;
+    //std::cout << "Preconditioning complete. Correction matrix T is in device memory d_T." << std::endl;
 
 
 }
