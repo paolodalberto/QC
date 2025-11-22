@@ -1,4 +1,78 @@
-typedef rocblas_double_complex ZC;
+
+
+
+#include <iostream>
+#include <vector>
+#include <hip/hip_runtime_api.h>
+#include <rocblas/rocblas.h>
+#include <hip/hip_complex.h>
+#include <cmath>
+#include <cstdlib>
+
+/*
+#include <iostream>
+#include <vector>
+#include <hip/hip_runtime_api.h>
+#include <rocblas.h>
+#include <cstdlib>
+*/
+#define CHECK_HIP_ERROR(call) do {                                   \
+    hipError_t err = call;                                           \
+    if (err != hipSuccess) {                                         \
+        std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__; \
+        std::cerr << " : " << hipGetErrorString(err) << std::endl;   \
+        exit(EXIT_FAILURE);                                          \
+    }                                                                \
+} while (0)
+
+#define CHECK_ROCBLAS_ERROR(call) do {                                    \
+    rocblas_status status = call;                                         \
+    if (status != rocblas_status_success) {                               \
+        std::cerr << "rocBLAS error at " << __FILE__ << ":" << __LINE__;  \
+        std::cerr << " : " << status << std::endl;                        \
+        exit(EXIT_FAILURE);                                               \
+    }                                                                     \
+} while (0)
+
+typedef hipDoubleComplex ZC;
+
+
+// Helper function to initialize complex numbers
+ZC make_complex(double r, double i) {
+    return hipCmplx(r, i);
+}
+
+// Helper function for host-side matrix multiplication verification (standard C++ implementation)
+void cpu_zgemm(int M, int N, int K, ZC alpha, 
+               const std::vector<ZC>& A, rocblas_stride strideA,
+               const std::vector<ZC>& B, rocblas_stride strideB,
+               ZC beta, std::vector<ZC>& C, rocblas_stride strideC,
+               int batchCount) {
+    for (int batch = 0; batch < batchCount; ++batch) {
+        for (int m = 0; m < M; ++m) {
+            for (int n = 0; n < N; ++n) {
+                // Calculate original C value scaled by beta
+                ZC c_val = C[batch * strideC + m + n * M];
+                ZC sum = make_complex(0.0, 0.0);
+
+                for (int k_idx = 0; k_idx < K; ++k_idx) {
+                    // C++ complex multiplication (hipCmulf) and addition (hipCaddf) are used here
+                    ZC a_val = A[batch * strideA + m + k_idx * M];
+                    ZC b_val = B[batch * strideB + k_idx + n * K];
+                    sum = hipCadd(sum, hipCmul(a_val, b_val));
+                }
+                
+                // C = alpha * (A*B) + beta * C
+                ZC alpha_sum = hipCmul(alpha, sum);
+                ZC beta_c = hipCmul(beta, c_val);
+                C[batch * strideC + m + n * M] = hipCadd(alpha_sum, beta_c);
+            }
+        }
+    }
+}
+
+
+
 
 struct matrix {
 
@@ -17,8 +91,13 @@ struct matrix {
   void alloc(bool host , bool device  ) {
     if (size()>0) {
       //printf(" Allocated %d * %d = %d elements \n", M, N,M*N);
-      if (host)   matrix = (double*) std::calloc(M*N,sizeof(ZC));
-      if (device) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(ZC)));		      
+      if (host and matrix==0)     matrix = (double*) std::calloc(M*N,sizeof(ZC));
+      if (matrix == NULL) {
+	std::cerr << "Memory allocation failed!" << std::endl;
+	// Handle the error, e.g., exit, throw an exception, or attempt recovery
+	exit(EXIT_FAILURE);
+      }
+      if (device and matrix_d==0) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(ZC)));		      
     }
   }
   void readfromdevice() {
@@ -65,143 +144,193 @@ typedef struct matrix Matrix;
 
 
 struct circuit {
-  Matrix I; // Input state : 2^n x1 
-  Matrix U; // Gate matrix gxg 
-  int    I_l; // batch
-  int    I_r; // outer dimension of I_l(x)G(x)I_r
-  Matrix O; // output state 
+  std::string name;
+  int    bit_number;
+  Matrix &I; // Input state : 2^n x1 
+  Matrix &U; // Gate matrix gxg 
+  Matrix &O; // output state
+  int m=0;
+  int n=0;
+  int k=0;
+  static ZC alpha = {1.0, 0.0};
+  static ZC beta  = {0.0, 0.0};  // beta = 0.0 + 0.0i
+  void init() {
+    U.alloc(true, true);
+    int B = I.m; // this is the state 2^n 
+    int batch_count = B - (1>>bit_number+U.m);
+    int m = U.m;
+    int n = 1>>bit_number;
+    int k = U.n;
+  }
 
+  void free() {
+    U.free();
+  }
+  
+  
+  void step(rocblas_handle handle) {
+
+    CHECK_ROCBLAS_ERROR(
+        rocblas_zgemm_batched(
+	     handle,
+	     rocblas_operation_none, rocblas_operation_none, // No transpose for A and B
+	     m, n, k,
+	     &alpha,
+	     (const ZC* const*)U.d_matrix, U.m,
+	     (const ZC* const*)I.d_matrix, U.m,
+	     &beta,
+	     O.d_matrix, U.m,
+	     batch_count
+			      )
+			);
+  }
 };
 
+typdef struct circuit Circuit;
+
+struct schedule {
+  std::vector<std::vector<Circuit>> schedule; 
+
+  void init(){
+    for (std::vector<Circuit> &level  : schedule)
+      for (Circuit h : level )
+	h.init
+    
+  }
+  
+  
+  void step(rocblas_handle handle) {
+
+    CHECK_ROCBLAS_ERROR(
+        rocblas_zgemm_batched(
+	     handle,
+	     rocblas_operation_none, rocblas_operation_none, // No transpose for A and B
+	     m, n, k,
+	     &alpha,
+	     (const ZC* const*)U.d_matrix, U.m,
+	     (const ZC* const*)I.d_matrix, U.m,
+	     &beta,
+	     O.d_matrix, U.m,
+	     batch_count
+			      )
+			);
+  }
+};
+
+typdef struct circuit Circuit;
 
 
 
 
-#include <iostream>
-#include <vector>
-#include <hip/hip_runtime_api.h>
-#include <rocblas.h>
-
-#define CHECK_HIP_ERROR(call) do {                                   \
-    hipError_t err = call;                                           \
-    if (err != hipSuccess) {                                         \
-        std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__; \
-        std::cerr << " : " << hipGetErrorString(err) << std::endl;   \
-        exit(EXIT_FAILURE);                                          \
-    }                                                                \
-} while (0)
-
-#define CHECK_ROCBLAS_ERROR(call) do {                                    \
-    rocblas_status status = call;                                         \
-    if (status != rocblas_status_success) {                               \
-        std::cerr << "rocBLAS error at " << __FILE__ << ":" << __LINE__;  \
-        std::cerr << " : " << status << std::endl;                        \
-        exit(EXIT_FAILURE);                                               \
-    }                                                                     \
-} while (0)
 
 int main() {
-    rocblas_handle handle;
-    CHECK_ROCBLAS_ERROR(rocblas_create_handle(&handle));
+      rocblas_handle handle;
+    CHECK_ROCBLAS(rocblas_create_handle(&handle));
 
-    // Matrix dimensions (all matrices in the batch must have the same dimensions)
-    rocblas_int m = 2;
-    rocblas_int n = 2;
-    rocblas_int k = 2;
-    rocblas_int lda = m;
-    rocblas_int ldb = k;
-    rocblas_int ldc = m;
-    rocblas_int batch_count = 3;
+    // Matrix dimensions: A (N x K), B (K x N), C (N x N)
+    const int N = 4;
+    const int K = 4;
+    const int BATCH_COUNT = 3;
 
-    // Scalars
-    ZC alpha = {1.0, 0.0}; // alpha = 1.0 + 0.0i
-    ZC beta = {0.0, 0.0};  // beta = 0.0 + 0.0i
+    // Define strides (memory distance between start of matrices)
+    const rocblas_stride strideA = N * K;
+    const rocblas_stride strideB = K * N;
+    const rocblas_stride strideC = N * N;
+    const size_t total_elements_A = strideA * BATCH_COUNT;
+    const size_t total_elements_B = strideB * BATCH_COUNT;
+    const size_t total_elements_C = strideC * BATCH_COUNT;
 
-    // Host data (example values)
-    std::vector<ZC> hA_data = {
-        {1.0, 0.0}, {2.0, 0.0}, {3.0, 0.0}, {4.0, 0.0}, // Matrix A1 2x2
-        {5.0, 0.0}, {6.0, 0.0}, {7.0, 0.0}, {8.0, 0.0}, // Matrix A2 2x2
-        {9.0, 0.0}, {0.0, 0.0}, {1.0, 0.0}, {2.0, 0.0}  // Matrix A3 2x2
-    };
-    std::vector<ZC> hB_data = {
-        {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {1.0, 0.0}, // Matrix B1 2x2
-        {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {1.0, 0.0}, // Matrix B2 2x2
-        {1.0, 0.0}, {0.0, 0.0}, {0.0, 0.0}, {1.0, 0.0}  // Matrix B3 2x2
-    };
-    std::vector<ZC> hC_data(m * n * batch_count, {0.0, 0.0});
+    // --- 1. Host side data initialization ---
+    std::vector<hipDoubleComplex> h_A(total_elements_A);
+    std::vector<hipDoubleComplex> h_B(total_elements_B);
+    std::vector<hipDoubleComplex> h_C(total_elements_C, make_complex(0.0, 0.0));
+    // A separate CPU ground truth vector for verification
+    std::vector<hipDoubleComplex> h_C_cpu_verify(total_elements_C, make_complex(0.0, 0.0));
+`%
+    // Fill A, B, and C with some values (example: 1.0 + 0.0i, etc.)
+    for (size_t i = 0; i < total_elements_A; ++i) h_A[i] = make_complex(1.0, 0.0);
+    for (size_t i = 0; i < total_elements_B; ++i) h_B[i] = make_complex(0.5, 0.0);
+    // Initialize C with ones so we can test the beta scaling
+    for (size_t i = 0; i < total_elements_C; ++i) h_C[i] = make_complex(1.0, 0.0); 
 
-    // Allocate device memory for data
-    ZC *dA_data, *dB_data, *dC_data;
-    CHECK_HIP_ERROR(hipMalloc(&dA_data, hA_data.size() * sizeof(ZC)));
-    CHECK_HIP_ERROR(hipMalloc(&dB_data, hB_data.size() * sizeof(ZC)));
-    CHECK_HIP_ERROR(hipMalloc(&dC_data, hC_data.size() * sizeof(ZC)));
+    // Initialize the CPU verification array with the same start values as h_C
+    h_C_cpu_verify = h_C;
 
-    // Copy data to device
-    CHECK_HIP_ERROR(hipMemcpy(dA_data, hA_data.data(), hA_data.size() * sizeof(ZC), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(dB_data, hB_data.data(), hB_data.size() * sizeof(ZC), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(dC_data, hC_data.data(), hC_data.size() * sizeof(ZC), hipMemcpyHostToDevice));
+    // Scaling factors: C = 1.0 * A * B + 1.0 * C 
+    hipDoubleComplex alpha = make_complex(1.0, 0.0);
+    hipDoubleComplex beta  = make_complex(1.0, 0.0);
 
-    // Create device pointers for the array of matrix pointers
-    ZC **d_A_array, **d_B_array, **d_C_array;
-    CHECK_HIP_ERROR(hipMalloc(&d_A_array, batch_count * sizeof(ZC*)));
-    CHECK_HIP_ERROR(hipMalloc(&d_B_array, batch_count * sizeof(ZC*)));
-    CHECK_HIP_ERROR(hipMalloc(&d_C_array, batch_count * sizeof(ZC*)));
+    // --- 2. Device memory allocation and data transfer ---
+    hipDoubleComplex *d_A, *d_B, *d_C;
+    CHECK_HIP(hipMalloc(&d_A, total_elements_A * sizeof(hipDoubleComplex)));
+    CHECK_HIP(hipMalloc(&d_B, total_elements_B * sizeof(hipDoubleComplex)));
+    CHECK_HIP(hipMalloc(&d_C, total_elements_C * sizeof(hipDoubleComplex)));
 
-    // Prepare host-side array of pointers
-    std::vector<ZC*> h_A_array(batch_count);
-    std::vector<ZC*> h_B_array(batch_count);
-    std::vector<ZC*> h_C_array(batch_count);
-    size_t matrix_size = m * n * sizeof(ZC); // For A and C
-    size_t b_matrix_size = k * n * sizeof(ZC); // For B
+    CHECK_HIP(hipMemcpy(d_A, h_A.data(), total_elements_A * sizeof(hipDoubleComplex), hipMemcpyHostToDevice));
+    CHECK_HIP(hipMemcpy(d_B, h_B.data(), total_elements_B * sizeof(hipDoubleComplex), hipMemcpyHostToDevice));
+    CHECK_HIP(hipMemcpy(d_C, h_C.data(), total_elements_C * sizeof(hipDoubleComplex), hipMemcpyHostToDevice));
 
-    for (int i = 0; i < batch_count; ++i) {
-        h_A_array[i] = dA_data + i * (m * k);
-        h_B_array[i] = dB_data + i * (k * n);
-        h_C_array[i] = dC_data + i * (m * n);
-    }
-
-    // Copy array of pointers to device memory
-    CHECK_HIP_ERROR(hipMemcpy(d_A_array, h_A_array.data(), batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_B_array, h_B_array.data(), batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_C_array, h_C_array.data(), batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-
-    // Call rocblas_zgemm_batched
-    CHECK_ROCBLAS_ERROR(rocblas_zgemm_batched(
+    // --- 3. Perform the rocBLAS computation ---
+    // Here we compute C = alpha * A * B + beta * C
+    CHECK_ROCBLAS(rocblas_zgemm_strided_batched(
         handle,
-        rocblas_operation_none, rocblas_operation_none, // No transpose for A and B
-        m, n, k,
-        &alpha,
-        (const ZC* const*)d_A_array, lda,
-        (const ZC* const*)d_B_array, ldb,
-        &beta,
-        d_C_array, ldc,
-        batch_count
+        rocblas_operation_none, 
+        rocblas_operation_none, 
+        N,           // M
+        N,           // N
+        K,           // K
+        &alpha,      
+        d_A,         
+        N,           // lda
+        strideA,     
+        d_B,         
+        K,           // ldb
+        strideB,     
+        &beta,       
+        d_C,         // Output pointer
+        N,           // ldc
+        strideC,     
+        BATCH_COUNT  
     ));
 
-    // Copy results back to host
-    CHECK_HIP_ERROR(hipMemcpy(hC_data.data(), dC_data, hC_data.size() * sizeof(ZC), hipMemcpyDeviceToHost));
+    // --- 4. Verification Step ---
+    // Synchronize the device and copy results back to host
+    CHECK_HIP(hipDeviceSynchronize());
+    std::vector<hipDoubleComplex> h_C_gpu_result(total_elements_C);
+    CHECK_HIP(hipMemcpy(h_C_gpu_result.data(), d_C, total_elements_C * sizeof(hipDoubleComplex), hipMemcpyDeviceToHost));
 
-    // Print results (optional)
-    std::cout << "Batched ZGEMM results:" << std::endl;
-    for (int i = 0; i < batch_count; ++i) {
-        std::cout << "Matrix C" << i + 1 << ":" << std::endl;
-        for (int row = 0; row < m; ++row) {
-            for (int col = 0; col < n; ++col) {
-                int idx = i * (m * n) + row * n + col; // Simple row-major index for printing
-                std::cout << "(" << hC_data[idx].real() << ", " << hC_data[idx].imag() << ") ";
-            }
-            std::cout << std::endl;
+    // Compute the CPU ground truth result
+    cpu_zgemm(N, N, K, alpha, h_A, strideA, h_B, strideB, beta, h_C_cpu_verify, strideC, BATCH_COUNT);
+
+    // Compare results
+    bool success = true;
+    double tolerance = 1e-9;
+    for (size_t i = 0; i < total_elements_C; ++i) {
+        double gpu_real = hipCreal(h_C_gpu_result[i]);
+        double cpu_real = hipCreal(h_C_cpu_verify[i]);
+        double gpu_imag = hipCimag(h_C_gpu_result[i]);
+        double cpu_imag = hipCimag(h_C_cpu_verify[i]);
+
+        if (std::abs(gpu_real - cpu_real) > tolerance || std::abs(gpu_imag - cpu_imag) > tolerance) {
+            std::cerr << "Mismatch at index " << i << ": GPU (" 
+                      << gpu_real << ", " << gpu_imag << ") vs CPU (" 
+                      << cpu_real << ", " << cpu_imag << ")" << std::endl;
+            success = false;
+            break;
         }
     }
 
-    // Cleanup
-    CHECK_HIP_ERROR(hipFree(dA_data));
-    CHECK_HIP_ERROR(hipFree(dB_data));
-    CHECK_HIP_ERROR(hipFree(dC_data));
-    CHECK_HIP_ERROR(hipFree(d_A_array));
-    CHECK_HIP_ERROR(hipFree(d_B_array));
-    CHECK_HIP_ERROR(hipFree(d_C_array));
-    CHECK_ROCBLAS_ERROR(rocblas_destroy_handle(handle));
+    if (success) {
+        std::cout << "rocBLAS strided batched ZGEMM test PASSED!" << std::endl;
+    } else {
+        std::cout << "rocBLAS strided batched ZGEMM test FAILED!" << std::endl;
+    }
 
-    return EXIT_SUCCESS;
-}
+    // --- 5. Cleanup ---
+    CHECK_HIP(hipFree(d_A));
+    CHECK_HIP(hipFree(d_B));
+    CHECK_HIP(hipFree(d_C));
+    CHECK_ROCBLAS(rocblas_destroy_handle(handle));
+
+    return success ? EXIT_SUCCESS : EXIT_FAILURE;
+ }
