@@ -422,7 +422,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 		    double tolerance=1e-8) {
 
   int debug = 0;
-  if (1 || debug) printf(" davidson  %d %d \n",num_eigs,max_iterations);
+  if (true || debug) printf(" davidson  %d %d \n",num_eigs,max_iterations);
   // Create rocBLAS handle
   rocblas_handle handle;
   CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
