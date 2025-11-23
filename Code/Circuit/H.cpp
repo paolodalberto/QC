@@ -42,36 +42,52 @@ ZC make_complex(double r, double i) {
   return ZC{r, i};
 }
 
-// Helper function for host-side matrix multiplication verification (standard C++ implementation)
-void cpu_zgemm(int M, int N, int K, ZC alpha, 
-               const std::vector<ZC>& A, rocblas_stride strideA,
-               const std::vector<ZC>& B, rocblas_stride strideB,
-               ZC beta, std::vector<ZC>& C, rocblas_stride strideC,
-               int batchCount) {
-    for (int batch = 0; batch < batchCount; ++batch) {
-        for (int m = 0; m < M; ++m) {
-            for (int n = 0; n < N; ++n) {
-                // Calculate original C value scaled by beta
-                ZC c_val = C[batch * strideC + m + n * M];
-                ZC sum = make_complex(0.0, 0.0);
 
-                for (int k_idx = 0; k_idx < K; ++k_idx) {
-                    // C++ complex multiplication (hipCmulf) and addition (hipCaddf) are used here
-                    ZC a_val = A[batch * strideA + m + k_idx * M];
-                    ZC b_val = B[batch * strideB + k_idx + n * K];
-                    sum = sum + a_val*b_val;
-                }
-                
-                // C = alpha * (A*B) + beta * C
-                ZC alpha_sum = alpha* sum;
-                ZC beta_c = beta* c_val;
-                C[batch * strideC + m + n * M] = alpha_sum +  beta_c;
-            }
-        }
-    }
-}
+/**********
+ * Reference computation in basic c++
+ * using regular pointers
+ *
+ */ 
 
+extern
+void cpu_zgemm_batched(int M, int N, int K, ZC alpha, 
+		       ZC* A, rocblas_stride ldA,
+		       ZC* B, rocblas_stride ldB,
+		       ZC beta,
+		       ZC* C, rocblas_stride ldC,
+		       int batchCount
+		       );
+/***
+ * For batched computation we need to prepare the pointers
+ */
 
+extern 
+void pre_gpu_gemm(
+		  int M, int N, int K, 
+		  ZC** A, rocblas_stride ldA, ZC *d_A,
+		  ZC** B, rocblas_stride ldB, ZC *d_B,
+		  ZC** C, rocblas_stride ldC, ZC *d_C,
+		  int batchCount
+		  );
+/***
+ * After the pre you can run the execute 
+ */
+extern 
+void gpu_zgemm_batched(
+		       rocblas_handle handle,
+		       int M, int N, int K, ZC alpha, 
+		       ZC** A, rocblas_stride ldA,
+		       ZC** B, rocblas_stride ldB,
+		       ZC beta,
+		       ZC** C, rocblas_stride ldC,
+		       int batchCount
+		       );
+
+/******
+ * pointers are a little too little and this is a way to wrap a matrix
+ * nicely.
+ *
+ ******/
 
 
 struct matrix {
@@ -83,7 +99,9 @@ struct matrix {
   int N;                       // Maximum cols
   ZC *matrix = 0; // host  
   ZC *d_matrix =0;            // device
+  int batch = 0;
 
+  
   void free() {
     if (matrix) std::free(matrix);
     if (d_matrix) CHECK_HIP_ERROR(hipFree(d_matrix));
@@ -143,27 +161,94 @@ struct matrix {
 typedef struct matrix Matrix;
 
 
+
+/*****
+ * this is column major and thus we will need to compute O = A^t I,
+ * but I will transpose directly A ...
+ ***/
+
+void cpu_zgemm_batched_M(
+     int M, int N, int K, ZC alpha, 
+     Matrix &A,
+     Matrix &B,
+     ZC beta,
+     Matrix C,
+     int batchCount) {
+  
+  cpu_zgemm_batched(A.m, B.m, A.n, alpha, 
+		    A.matrix, A.m,
+		    B.matrix, B.m,
+		    ZC beta,
+		    C.matrix, C.m,
+		    int batchCount
+		    );
+
+}
+
+
+
 struct circuit {
   std::string name;
   int    bit_number;
-  Matrix &I; // Input state : 2^n x1 
-  Matrix &U; // Gate matrix gxg 
-  Matrix &O; // output state
+  Matrix &I; // Input state : 2^n x 1: shared 
+  Matrix &U; // Gate matrix gxg      : shared and already transposed  
+  Matrix &O; // output state         : shared  
   int m=0;
   int n=0;
   int k=0;
   int batch_count =1;
   ZC alpha = ZC{1.0, 0.0};
   ZC beta  = ZC{0.0, 0.0};  // beta = 0.0 + 0.0i
+
+  // host pointers 
+  ZC **h_A_ptrs;
+  ZC **h_B_ptrs;
+  ZC **h_C_ptrs;
+
+  // device pointers 
+  ZC **d_A_ptrs;
+  ZC **d_B_ptrs;
+  ZC **d_C_ptrs;
+
   void init() {
+    // U  is square 
     U.alloc(true, true);
     int B = I.m; // this is the state 2^n 
     batch_count = B - ((1<<bit_number)+U.m);
     int m = U.m;
     int n = 1<<bit_number;
     int k = U.n;
+
+    
+    ZC **h_A_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
+    ZC **h_B_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
+    ZC **h_C_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
+    
+    CHECK_HIP(hipMalloc((void**)&d_A_ptrs, batchCount * sizeof(ZC*)));
+    CHECK_HIP(hipMalloc((void**)&d_B_ptrs, batchCount * sizeof(ZC*)));
+    CHECK_HIP(hipMalloc((void**)&d_C_ptrs, batchCount * sizeof(ZC*)));
+
+    pre_gpu_gemm(m,n,k,
+		 h_A_ptrs,m,U.matrix,
+		 h_B_ptrs,ldB,I.matrix,
+		 h_C_ptrs,ldC,O.matrix,
+		 batchCount);
+
+
+    
+
+
+
+
+
+    
   }
 
+
+
+
+
+  
   void free() {
     U.free();
   }
