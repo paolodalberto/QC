@@ -37,10 +37,6 @@
 typedef rocblas_double_complex ZC;
 //rocblas_complex_num<double>
 
-// Helper function to initialize complex numbers
-ZC make_complex(double r, double i) {
-  return ZC{r, i};
-}
 
 
 /**********
@@ -50,7 +46,7 @@ ZC make_complex(double r, double i) {
  */ 
 
 extern
-void cpu_zgemm_batched(int M, int N, int K, ZC alpha, 
+void cpu_zgemm_batched_b(int M, int N, int K, ZC alpha, 
 		       ZC* A, rocblas_stride ldA,
 		       ZC* B, rocblas_stride ldB,
 		       ZC beta,
@@ -163,26 +159,27 @@ typedef struct matrix Matrix;
 
 
 /*****
- * this is column major and thus we will need to compute O = A^t I,
- * but I will transpose directly A ...
+ * this is column major and thus we will need to compute O = I * G^t
+ * but I will transpose directly G  ...
  ***/
 
 void cpu_zgemm_batched_M(
      int M, int N, int K, ZC alpha, 
      Matrix &A,
-     Matrix &B,
+     Matrix &B,  // B is the small one the gate one 
      ZC beta,
-     Matrix C,
+     Matrix &C,
      int batchCount) {
   
-  cpu_zgemm_batched(A.m, B.m, A.n, alpha, 
-		    A.matrix, A.m,
-		    B.matrix, B.m,
-		    ZC beta,
-		    C.matrix, C.m,
-		    int batchCount
-		    );
-
+  cpu_zgemm_batched_b(
+	   A.m, B.m, A.n, alpha, 
+	   A.matrix, A.m, // I 
+	   B.matrix, B.m, // G^t
+	   ZC beta,
+	   C.matrix, C.m, // O
+	   int batchCount
+		      );
+  
 }
 
 
@@ -213,11 +210,15 @@ struct circuit {
   void init() {
     // U  is square 
     U.alloc(true, true);
+
+    // remember we are doing O = I* U (where U is U^t)
+    
     int B = I.m; // this is the state 2^n 
     batch_count = B - ((1<<bit_number)+U.m);
-    int m = U.m;
-    int n = 1<<bit_number;
-    int k = U.n;
+
+    m = 1<<bit_number;
+    n = U.n; 
+    k = U.m;
 
     
     ZC **h_A_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
@@ -234,23 +235,16 @@ struct circuit {
 		 h_C_ptrs,ldC,O.matrix,
 		 batchCount);
 
-
-    
-
-
-
-
-
-    
   }
-
-
-
-
-
   
   void free() {
     U.free();
+    free(h_A_ptrs);
+    free(h_B_ptrs);
+    free(h_C_ptrs);
+    CHECK_HIP_ERROR(hipFree(d_A_ptrs));
+    CHECK_HIP_ERROR(hipFree(d_B_ptrs));
+    CHECK_HIP_ERROR(hipFree(d_C_ptrs));
   }
   
   
@@ -265,27 +259,15 @@ struct circuit {
 
 
     CHECK_ROCBLAS_ERROR(
-	rocblas_zgemm_strided_batched(
-		handle,
-		rocblas_operation_none, 
-		rocblas_operation_none, 
-		n,           // M
-		n,           // N
-		k,           // K
-		&alpha,      
-		U.d_matrix,         
-		n,           // lda
-		strideA,     
-		I.d_matrix,         
-		k,           // ldb
-		strideB,     
-		&beta,       
-		O.d_matrix,         // Output pointer
-		n,           // ldc
-		strideC,     
-		batch_count  
-				      ));
-  }
+	gpu_zgemm_batched(
+	    handle,
+	    m, n, k, alpha, 
+	    d_A_ptrs, strideA,
+	    d_B_ptrs, strideB,
+	    beta,
+	    d_C_ptrs, strideC,
+	    batchCount
+			  );
   
 };
 

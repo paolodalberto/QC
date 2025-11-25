@@ -1,4 +1,4 @@
-
+t
 #include <complex.h> 
 
 #include <iostream>
@@ -36,7 +36,7 @@ typedef rocblas_double_complex ZC;
     if (s != rocblas_status_success) { \
         printf("rocBLAS error at %s:%d\n", __FILE__, __LINE__); \
         exit(EXIT_FAILURE); \
-    } \
+    } \art 
 }
 
 // Helper function for host-side matrix multiplication verification (standard C++ implementation)
@@ -62,6 +62,70 @@ void cpu_zgemm_batched(int M, int N, int K, ZC alpha,
 	    // Note: h_A_data accesses the single A matrix for all batches now
 	    ZC a = A[m + k * ldA]; 
 	    ZC b = B[p * matrix_elements_B + k + n * ldB];
+	    sum = sum +a*b;
+	  }
+	  C[p * matrix_elements_C + m + n * ldC] = sum +  C[p * matrix_elements_C + m + n * ldC]*beta;
+	}
+      }
+  }
+}
+
+
+
+// Helper function for host-side matrix multiplication verification (standard C++ implementation)
+void cpu_zgemm_batched(int M, int N, int K, ZC alpha, 
+               ZC* A, rocblas_stride ldA,
+               ZC* B, rocblas_stride ldB,
+               ZC beta,
+	       ZC* C, rocblas_stride ldC,
+               int batchCount
+	       ) {
+
+  // Calculate matrix sizes in elements
+  size_t matrix_elements_A = M * K;
+  size_t matrix_elements_B = K * N;
+  size_t matrix_elements_C = M * N;
+
+
+  for (int p = 0; p < batchCount; ++p) {
+      for (int m = 0; m < M; ++m) {
+	for (int n = 0; n < N; ++n) {
+	  ZC sum = ZC{0.0, 0.0};
+	  for (int k = 0; k < K; ++k) {
+	    // Note: h_A_data accesses the single A matrix for all batches now
+	    ZC a = A[m + k * ldA]; 
+	    ZC b = B[p * matrix_elements_B + k + n * ldB];
+	    sum = sum +a*b;
+	  }
+	  C[p * matrix_elements_C + m + n * ldC] = sum +  C[p * matrix_elements_C + m + n * ldC]*beta;
+	}
+      }
+  }
+}
+
+// Helper function for host-side matrix multiplication verification (standard C++ implementation)
+void cpu_zgemm_batched_b(int M, int N, int K, ZC alpha, 
+               ZC* A, rocblas_stride ldA,
+               ZC* B, rocblas_stride ldB,
+               ZC beta,
+	       ZC* C, rocblas_stride ldC,
+               int batchCount
+	       ) {
+
+  // Calculate matrix sizes in elements
+  size_t matrix_elements_A = M * K;
+  size_t matrix_elements_B = K * N;
+  size_t matrix_elements_C = M * N;
+
+
+  for (int p = 0; p < batchCount; ++p) {
+      for (int m = 0; m < M; ++m) {
+	for (int n = 0; n < N; ++n) {
+	  ZC sum = ZC{0.0, 0.0};
+	  for (int k = 0; k < K; ++k) {
+	    // Note: h_A_data accesses the single A matrix for all batches now
+	    ZC a = A[p * matrix_elements_A +m + k * ldA]; 
+	    ZC b = B[k + n * ldB];
 	    sum = sum +a*b;
 	  }
 	  C[p * matrix_elements_C + m + n * ldC] = sum +  C[p * matrix_elements_C + m + n * ldC]*beta;
