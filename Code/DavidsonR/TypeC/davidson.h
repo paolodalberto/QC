@@ -1,7 +1,7 @@
 
 #pragma once
 
-#define TYPE_OPERAND 3
+#define TYPE_OPERAND 4
 
 #include <iostream>
 #include <vector>

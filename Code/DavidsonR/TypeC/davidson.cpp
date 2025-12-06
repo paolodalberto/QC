@@ -429,7 +429,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   CHECK_HIP_ERROR(hipMalloc(&info_device, sizeof(int)));        // solver burfing 
 
   if (debug) printf(" start loop  \n");
-  V.writetodevice();  
+  V.writetodevice();
+  int converged_count = 0;
   for (int iteration=0; iteration<max_iterations; iteration++) {
     //V.readfromdevice(); printf("V "); V.print(true);
     //V.writetodevice();  
@@ -513,7 +514,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 
 
     projection(handle, H,V,T,P); 
-    int converged_count = 0;
+
+    converged_count = 0;
     //printf(" Iteration %d \n",iteration); 
     for ( int i=0; i< num_eigs; i++) { 
       if (i ==0) printf("Norm[%d]= %e vs %e \n", i,norms[i], tolerance);
@@ -543,7 +545,14 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 
   }
 
-
+   if (converged_count < num_eigs) {
+      printf("Davidson NOT converged \n");
+      
+      EVa.readfromdevice();
+      EVe_sorted.readfromdevice();
+      for (int i=0; i<num_eigs; i++)
+	printf(" %d %e \n",i,EVa.matrix[i]);
+   }
 
   CHECK_HIP_ERROR(hipFree(d_perm_indices));
   CHECK_HIP_ERROR(hipFree(d_norms));
@@ -623,6 +632,7 @@ int main(int argc, char* argv[]) {
   int M = (argc>2)? std::atoi(argv[2]):1000;
   int n_eng =  (argc>3)?std::atoi(argv[3]):1;
   int it    = (argc>4)?std::atoi(argv[4]):3;  
+  int comp    = (argc>5)?std::atoi(argv[5]):0;  
   
   printf(" device: %d M: %d n_eng: %d it: %d \n", mydevice, M, n_eng, it); 
   printf("SIZE = %lu \n", sizeof(ZC));
@@ -634,13 +644,28 @@ int main(int argc, char* argv[]) {
 
   H.zero();
   for (int i = 0; i<M; i++) {
-    H.matrix[H.ind(i,i)] = i+1;
+#if(TYPE_OPERAND==3 )
+    H.matrix[H.ind(i,i)] = ZC{1.0f*(M - i+2),0.0f};
+#elif(TYPE_OPERAND==4)
+    H.matrix[H.ind(i,i)] = ZC{1.0*(M - i+2),0.0};
+#else
+    H.matrix[H.ind(i,i)] = M - i;
+#endif
+    H.matrix[H.ind(i,i)] = M - i;
     //printf(" i %d index %d M %f \n", i, H.ind(i,i), H.matrix[H.ind(i,i)]);
   }
   for (int i = 0; i<M; i++) {
     for (int j = i+1; j<M; j++) {
+#if(TYPE_OPERAND==3 )
+      H.matrix[H.ind(i,j)] = ZC{1.0f/(i+j+2),0.0f} ;
+      H.matrix[H.ind(j,i)] = std::conj(H.matrix[H.ind(i,j)]);
+#elif( TYPE_OPERAND==4)
+      H.matrix[H.ind(i,j)] = ZC{1.0/(i+j+2),0.0} ;
+      H.matrix[H.ind(j,i)] = std::conj(H.matrix[H.ind(i,j)]);
+#else
       H.matrix[H.ind(i,j)] = 1.0/(i+j+2);
       H.matrix[H.ind(j,i)] = 1.0/(i+j+2);
+#endif
     }
   }
 
@@ -670,7 +695,7 @@ int main(int argc, char* argv[]) {
   
   // Output the elapsed time
   std::cout << "davidson: " << elapsed_seconds.count() << " seconds.\n";
-  if (0) {
+  if (comp) {
     start = std::chrono::high_resolution_clock::now();
     normal(H,n_eng);
     end = std::chrono::high_resolution_clock::now();
