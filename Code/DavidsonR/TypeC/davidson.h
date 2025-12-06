@@ -2,7 +2,7 @@
 #pragma once
 
 #define TYPE_OPERAND 3
- 
+
 #include <iostream>
 #include <vector>
 #include <cmath>
@@ -21,7 +21,7 @@ static ZC BETA  = 0.0;
 static ZC EPS  = 1e-6;
 #define GEMM  rocblas_hgemm
 #define SOLV  rocsolver_hsyev
-#define NORM  rocblas_hnrm2_strided_batched
+#define NORM_  rocblas_hnrm2_strided_batched
 #define GEQRF rocsolver_hgeqrf 
 #define ORGQR rocsolver_horgqr 
 
@@ -32,7 +32,7 @@ static ZC ALPHA = 1.0;
 static ZC BETA  = 0.0;
 #define GEMM  rocblas_sgemm
 #define SOLV  rocsolver_ssyev
-#define NORM  rocblas_snrm2_strided_batched
+#define NORM_  rocblas_snrm2_strided_batched
 #define GEQRF rocsolver_sgeqrf 
 #define ORGQR rocsolver_sorgqr 
 static ZC EPS  = 1e-10;
@@ -44,7 +44,7 @@ static ZC ALPHA = 1.0;
 static ZC BETA  = 0.0;
 #define GEMM  rocblas_dgemm
 #define SOLV  rocsolver_dsyev
-#define NORM  rocblas_dnrm2_strided_batched
+#define NORM_  rocblas_dnrm2_strided_batched
 #define GEQRF rocsolver_dgeqrf 
 #define ORGQR rocsolver_dorgqr 
 static ZC EPS  = 1e-12;
@@ -57,22 +57,22 @@ static ZC BETA{0.0,0.0};
 static ZC EPS{ 1e-12, 1e-12};
 
 #define GEMM  rocblas_zgemm
-#define SOLV  rocsolver_zsyev
-#define NORM  rocblas_znrm2_strided_batched
+#define SOLV  rocsolver_zheev
+#define NORM_ rocblas_dznrm2_strided_batched
 #define GEQRF rocsolver_zgeqrf 
-#define ORGQR rocsolver_zorgqr 
+#define ORGQR rocsolver_zungqr
 
 #elif  (TYPE_OPERAND==3)
-typedef double NORM_TYPE;
+typedef float NORM_TYPE;
 typedef rocblas_float_complex ZC;
 static ZC ALPHA{1.0,0.0};
 static ZC BETA{0.0,0.0};
 static ZC EPS{ 1e-6, 1e-6};
 #define GEMM  rocblas_cgemm
-#define SOLV  rocsolver_csyev
-#define NORM  rocblas_cnrm2_strided_batched
+#define SOLV  rocsolver_cheev
+#define NORM_  rocblas_scnrm2_strided_batched
 #define GEQRF rocsolver_cgeqrf 
-#define ORGQR rocsolver_corgqr 
+#define ORGQR  rocsolver_cungqr
 #endif
 
 
@@ -159,3 +159,4 @@ struct matrix {
 
 
 typedef struct matrix<ZC> Matrix;
+typedef struct matrix<NORM_TYPE> EigenValueMatrix;

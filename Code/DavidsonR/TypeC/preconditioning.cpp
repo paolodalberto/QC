@@ -15,7 +15,7 @@
 extern "C" __global__ void compute_residuals_kernel(
     const ZC* d_HX_inter,   // H * X intermediate results (M x N_EIG)
     const ZC* d_X,          // Eigenvectors X (M x N_EIG)
-    const ZC* d_eigvals,    // Eigenvalues (N_EIG vector)
+    const NORM_TYPE* d_eigvals,    // Eigenvalues (N_EIG vector)
     ZC* d_R,                // Output residuals R (M x N_EIG)
     const size_t M,             // Number of rows
     const size_t N_EIG)         // Number of columns/eigenvectors
@@ -36,7 +36,7 @@ extern "C" __global__ void davidson_preconditioner_2D_kernel(
     const ZC* d_R,          // Input Residuals (M x N_EIG matrix, column major)
     const ZC* d_diag_H,     // Input Diagonal (M vector)
     ZC* d_T,                // Output Corrections (M x N_EIG matrix, column major)
-    const ZC* d_eig_vals,   // Input Eigenvalues (N_EIG vector)
+    const NORM_TYPE* d_eig_vals,   // Input Eigenvalues (N_EIG vector)
     const ZC epsilon,       
     const size_t M,             
     const size_t N_EIG)         
@@ -63,7 +63,7 @@ void residuals(rocblas_handle handle,
 	       int M, int N_EIG,
 	       ZC *d_H, 
 	       ZC *d_X, // Eigenvectors 
-	       ZC *d_eig_vals, // eigenvalues 
+	       NORM_TYPE *d_eig_vals, // eigenvalues 
 	       ZC *d_HX_inter, // intermediate result
 	       ZC *d_R  // residuals
 	       )  {
@@ -110,7 +110,7 @@ void residuals(rocblas_handle handle,
 void corrections(int M, int N_EIG,
 		 ZC *d_R,      // residuals 
 		 ZC *d_diag_H, // H diagonal
-		 ZC *d_eig_vals, // eigenvalues 
+		 NORM_TYPE *d_eig_vals, // eigenvalues 
 		 ZC *d_T,         // result
 		 const ZC epsilon) { 
 

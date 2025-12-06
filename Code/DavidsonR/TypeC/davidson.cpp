@@ -82,8 +82,8 @@ void projection(rocblas_handle handle,
 static inline
 int eigenSolver(rocblas_handle handle,
 		Matrix &A,
-		Matrix &EVa,
-		Matrix &Work,
+		EigenValueMatrix &EVa,
+		EigenValueMatrix &Work,
 		int *info_device) {
 
   int info_host = 0;
@@ -124,11 +124,11 @@ extern void sortarg(int N, // number of rows
 		    int M, // number of keys  or columns 
 		    ZC *d_A, // source matrix  N rows and M columns we swap the columns
 		    ZC *d_B, // permuted destination matrix 
-		    ZC *d_sort_keys, // sorting keys
+		    NORM_TYPE *d_sort_keys, // sorting keys
 		    int* d_perm_indices // permutation 
 		    );
 
-void sortarg(Matrix &EVe, Matrix &EVe_sorted, Matrix &EVa,  int* d_perm_indices)  {
+void sortarg(Matrix &EVe, Matrix &EVe_sorted, EigenValueMatrix &EVa,  int* d_perm_indices)  {
   return  sortarg(EVe.m, EVe.n, EVe.d_matrix, EVe_sorted.d_matrix, EVa.d_matrix,d_perm_indices);
 }
 
@@ -146,13 +146,13 @@ extern void residuals(rocblas_handle handle,
 		      int M, int N_EIG,
 		      ZC *d_H, 
 		      ZC *d_X, // Eigenvectors 
-		      ZC *d_eig_vals, // eigenvalues 
+		      NORM_TYPE *d_eig_vals, // eigenvalues 
 		      ZC *d_HX_inter, // intermediate result
 		      ZC *d_R  // residuals
 		      );
 
 void residuals(rocblas_handle handle,
-	       Matrix &H, Matrix &X, Matrix &EVa, Matrix &HX_inter, Matrix &R, 
+	       Matrix &H, Matrix &X, EigenValueMatrix &EVa, Matrix &HX_inter, Matrix &R, 
 	       int N_EIG) {
   residuals(handle, H.m, N_EIG,H.d_matrix, X.d_matrix, EVa.d_matrix, HX_inter.d_matrix, R.d_matrix);
   
@@ -180,16 +180,25 @@ calculate_norm(
   
   // --- rocBLAS Call (Strided Batched NRM2) ---
   //std::cout << "Calling rocblas_dnrm2_strided_batched..." << std::endl;
+  rocblas_status rocblas_znrm2_strided_batched(rocblas_handle handle,
+                                             rocblas_int n,
+                                             const rocblas_double_complex *x,
+                                             rocblas_int incx,
+                                             rocblas_stride stridex,
+                                             rocblas_int batch_count,
+                                             double *results);
+
   CHECK_ROCBLAS_STATUS(
-	 NORM(
-	      handle,
-	      M,               // n: length of each vector
-	      d_A,             // x: device pointer to the matrix/vectors
-	      1,               // incx: stride within each vector (1 for column-major matrix)
-	      M,               // stride_x: stride between consecutive vectors in memory
-	      N,               // batch_count: number of vectors (columns)
-	      d_norms          // result: device pointer to store norms
-	      ));
+	 NORM_(
+	       handle,
+	       M,               // n: length of each vector
+	       d_A,             // x: device pointer to the matrix/vectors
+	       1,               // incx: stride within each vector (1 for column-m ajor matrix)
+	       M,               // stride_x: stride between consecutive vectors in memory
+	       N,               // batch_count: number of vectors (columns)
+	       d_norms          // result: device pointer to store norms
+	       )
+		       );
 
     // --- Copy results back to host ---
     CHECK_HIP_ERROR(hipMemcpy(h_norms.data(), d_norms, N * sizeof(NORM_TYPE), hipMemcpyDeviceToHost));
@@ -205,7 +214,7 @@ calculate_norm(
 extern void corrections(int M, int N_EIG,
 		   ZC *d_R,      // residuals 
 		   ZC *d_diag_H, // H diagonal
-		   ZC *d_eig_vals, // eigenvalues 
+		   NORM_TYPE *d_eig_vals, // eigenvalues 
 		   ZC *d_T,         // result
 		   const ZC epsilon);
 
@@ -213,7 +222,7 @@ extern void corrections(int M, int N_EIG,
  * STEP 8:  V  = V+  Corrections
  */
 
-void corrections_stack(Matrix &R, Matrix &D, Matrix &EVa, Matrix &T, const ZC epsilon, int N_EIG) {
+void corrections_stack(Matrix &R, Matrix &D, EigenValueMatrix &EVa, Matrix &T, const ZC epsilon, int N_EIG) {
   
   //printf("R "); R.print();
   //printf("D "); D.print();
@@ -299,7 +308,7 @@ int set_device(int id) {
 		      
 
 struct Value_Index {
-  double value;
+  NORM_TYPE value;
   int    index;
 };
 
@@ -319,6 +328,9 @@ void argsortCpp( std::vector<Value_Index> &A ) {
 
 
 }
+
+
+
 
 
 
@@ -353,8 +365,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   R.alloc(false,true);  // Residuals  
 
   // Eigensolver
-  Matrix EVa  = {H.n ,1,M ,1 };    // Eigenvalues
-  Matrix Work = {P.m ,P.n,M ,M };  // Eigenvalues 
+  EigenValueMatrix EVa  = {H.n ,1,M ,1 };    // Eigenvalues
+  EigenValueMatrix Work = {P.m ,P.n,M ,M };  // Eigenvalues 
   Matrix EVe_sorted = {P.m, P.n, M, M};  // Sorted 
 
   EVa.alloc(true,true);
@@ -381,7 +393,11 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
 
   ZC diagonal[H.n];
   for (int i=0;i<H.m; i++) {
+#if (TYPE_OPERAND==3 || TYPE_OPERAND==4)
+    diag[i].value = std::norm(H.matrix[H.ind(i,i)]);
+#else
     diag[i].value = H.matrix[H.ind(i,i)];
+#endif
     D.matrix[i]   = H.matrix[H.ind(i,i)];
     diag[i].index = i;
   }
@@ -391,7 +407,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   argsortCpp(diag);
   
   for (int i=0;i<num_eigs; i++) {
-    V.matrix[V.ind(diag[i].index,i)] = 1;
+    V.matrix[V.ind(diag[i].index,i)] = ZC{1};
   }
   
   if (debug) printf(" Move D \n");
@@ -405,7 +421,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   int *d_perm_indices;
   int *info_device;
   NORM_TYPE *d_norms;
-  const ZC epsilon = 1e-12;
+  
+  const ZC epsilon = EPS;
   
   CHECK_HIP_ERROR(hipMalloc(&d_perm_indices, H.m* sizeof(int))); 
   CHECK_HIP_ERROR(hipMalloc(&d_norms, num_eigs* sizeof(NORM_TYPE)));         
@@ -557,8 +574,8 @@ void normal(Matrix H,int n_eng) {
   CHECK_HIP_ERROR(hipMalloc(&info_device, sizeof(int)));        // solver burfing 
   CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
 
-  Matrix EVa  = {H.n ,1,H.n ,1 };    // Eigenvalues
-  Matrix Work = {H.m ,H.n, H.m,H.m };  // Eigenvalues 
+  EigenValueMatrix EVa  = {H.n ,1,H.n ,1 };    // Eigenvalues
+  EigenValueMatrix Work = {H.m ,H.n, H.m,H.m };  // Eigenvalues 
   Matrix EVe_sorted = {H.m, H.n,H.m, H.n,};  // Sorted 
 
   
@@ -609,6 +626,8 @@ int main(int argc, char* argv[]) {
   
   printf(" device: %d M: %d n_eng: %d it: %d \n", mydevice, M, n_eng, it); 
   printf("SIZE = %lu \n", sizeof(ZC));
+  printf("half = %lu float = %lu double = %lu scomplex  = %lu dcomplex = %lu \n",
+	 sizeof(std::float_t),sizeof(float),sizeof(double),sizeof(rocblas_float_complex),sizeof(rocblas_double_complex));
 
   Matrix H = {M,M,M,M};
   H.alloc(true,true);
@@ -635,7 +654,7 @@ int main(int argc, char* argv[]) {
 		std::min(it, H.m/n_eng),
 #if(TYPE_OPERAND==0  )
 		1e-3
-#elif(TYPE_OPERAND==1 )
+#elif(TYPE_OPERAND==1 || TYPE_OPERAND==3)
 		1e-4
 #else
 		1e-8

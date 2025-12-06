@@ -58,10 +58,10 @@ __global__ void permuteColumns(int N, int M, const ZC* d_input,
  * @param d_sort_keys_raw Raw device pointer to the keys array on the GPU (input/output).
  * @param d_perm_indices_raw Raw device pointer for the output permutation indices (output).
  */
-void generatePermutationIndicesGPU(int M, ZC* d_sort_keys_raw, int* d_perm_indices_raw) {
+void generatePermutationIndicesGPU(int M,  NORM_TYPE* d_sort_keys_raw, int* d_perm_indices_raw) {
     // 1. Wrap raw device pointers in thrust::device_ptr iterators
-    thrust::device_ptr<ZC> d_keys_begin(d_sort_keys_raw);
-    thrust::device_ptr<ZC> d_keys_end = d_keys_begin + M;
+    thrust::device_ptr<NORM_TYPE> d_keys_begin(d_sort_keys_raw);
+    thrust::device_ptr<NORM_TYPE> d_keys_end = d_keys_begin + M;
     thrust::device_ptr<int> d_indices_begin(d_perm_indices_raw);
 
     // 2. Fill the output index buffer sequentially on the GPU
@@ -84,7 +84,7 @@ void sortarg(int N, // number of rows
 	     int M, // number of keys  or columns 
 	     ZC *d_A, // source matrix  N rows and M columns we swap the columns
 	     ZC *d_B, // permuted destination matrix 
-	     ZC *d_sort_keys, // sorting keys
+	     NORM_TYPE *d_sort_keys, // sorting keys
 	     int* d_perm_indices // permutation 
 	     ) {
 	     
