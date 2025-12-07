@@ -17,7 +17,7 @@ INCLUDE_DIRS = -I./
 LIBRARIES = -lrocblas -lrocsolver
 
 # List of source files (davidson.cpp is the main file with 'main()')
-SOURCES = sortarg.cpp preconditioning.cpp davidson.cpp 
+SOURCES = sortarg.cpp preconditioning.cpp herm_p.cpp davidson.cpp 
 
 # Define the final executable name
 EXECUTABLE = davidson

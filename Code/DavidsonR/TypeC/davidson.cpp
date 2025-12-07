@@ -58,8 +58,13 @@ void projection(rocblas_handle handle,
   //printf("P \n"); P.print();
   // P = V^t T 
   CHECK_ROCBLAS_STATUS(
-	GEMM(handle, 
+	GEMM(handle,
+	     
+#if  (TYPE_OPERAND==4 || TYPE_OPERAND==3)
+	     rocblas_operation_conjugate_transpose,
+#else
 	     rocblas_operation_transpose, // transpose 
+#endif
 	     rocblas_operation_none, 
 	     P.m, T.n, T.m, // this is the problem size
 	     &alpha, 
@@ -622,6 +627,10 @@ void longRunningFunction() {
 
 
 
+extern void generate_diagonally_dominant_matrix(Matrix &H, double dominance_factor);
+
+
+
 
 int main(int argc, char* argv[]) {
   
@@ -642,32 +651,7 @@ int main(int argc, char* argv[]) {
   Matrix H = {M,M,M,M};
   H.alloc(true,true);
 
-  H.zero();
-  for (int i = 0; i<M; i++) {
-#if(TYPE_OPERAND==3 )
-    H.matrix[H.ind(i,i)] = ZC{1.0f*(M - i+2),0.0f};
-#elif(TYPE_OPERAND==4)
-    H.matrix[H.ind(i,i)] = ZC{1.0*(M - i+2),0.0};
-#else
-    H.matrix[H.ind(i,i)] = M - i;
-#endif
-    H.matrix[H.ind(i,i)] = M - i;
-    //printf(" i %d index %d M %f \n", i, H.ind(i,i), H.matrix[H.ind(i,i)]);
-  }
-  for (int i = 0; i<M; i++) {
-    for (int j = i+1; j<M; j++) {
-#if(TYPE_OPERAND==3 )
-      H.matrix[H.ind(i,j)] = ZC{1.0f/(i+j+2),0.0f} ;
-      H.matrix[H.ind(j,i)] = std::conj(H.matrix[H.ind(i,j)]);
-#elif( TYPE_OPERAND==4)
-      H.matrix[H.ind(i,j)] = ZC{1.0/(i+j+2),0.0} ;
-      H.matrix[H.ind(j,i)] = std::conj(H.matrix[H.ind(i,j)]);
-#else
-      H.matrix[H.ind(i,j)] = 1.0/(i+j+2);
-      H.matrix[H.ind(j,i)] = 1.0/(i+j+2);
-#endif
-    }
-  }
+  generate_diagonally_dominant_matrix(H,10);
 
   //H.print(true);
 

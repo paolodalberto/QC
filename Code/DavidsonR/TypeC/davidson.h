@@ -1,7 +1,15 @@
 
 #pragma once
 
-#define TYPE_OPERAND 4
+/**
+ *  TYPE_OPERAND 0 HALF precision ... not working
+ *  TYPE_OPERAND 1 float
+ *  TYPE_OPERAND 2 double 
+ *  TYPE_OPERAND 3 float complex 
+ *  TYPE_OPERAND 0 double complex
+ */ 
+
+#define TYPE_OPERAND 3
 
 #include <iostream>
 #include <vector>
@@ -148,10 +156,8 @@ struct matrix {
     printf("Column Major M,N = %d,%d \n", m,n);
     if (t)
 	for (int i = 0; i < MM; ++i) {
-	  for (int j = 0; j < NN; ++j) {
-	    //printf("%0.2f %d %d %d ", matrix[ind(i,j)],i,j,ind(i,j));
-	    printf("%e ", matrix[ind(i,j)]);
-	}
+	  for (int j = 0; j < NN; ++j) 
+	    std::cout << matrix[ind(i,j)] << " " ;
 	printf("\n");
       }
   };

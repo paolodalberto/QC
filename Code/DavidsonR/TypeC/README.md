@@ -1,13 +1,34 @@
 # Davidson Algorithm
 
 This is an example of translation of Davidson algorithm using ROCM and
-all in GPU, even the comparison test.
+all in GPU, even the comparison test.  Also this is an exercize for
+different types: float,double, float complex, and double complex.
+
+Either introduce the definition in the Make file or change it in the davidson.h file
+
+```c++
+/**
+ *  TYPE_OPERAND 0 HALF precision ... not working
+ *  TYPE_OPERAND 1 float
+ *  TYPE_OPERAND 2 double 
+ *  TYPE_OPERAND 3 float complex 
+ *  TYPE_OPERAND 0 double complex
+ */ 
+
+#define TYPE_OPERAND 4
+
+```
+
+Then make it and run it. 
+
+
 
 ```bash
 
 paolod@xsjfislx31:/scratch/Quant/QC/Code/DavidsonR/C$ make all
 /opt/rocm/bin/hipcc    -c -o sortarg.o sortarg.cpp
-/opt/rocm/bin/hipcc    -c -o preconditioning.o preconditioning.cpp
+/opt/rocm/bin/hipcc    -c -o preconditioning.o preconditioning.cpps
+
 /opt/rocm/bin/hipcc    -c -o davidson.o davidson.cpp
 ------------------------------------------------------
 Linking object files into the final executable: davidson
