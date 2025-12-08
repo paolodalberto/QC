@@ -399,7 +399,7 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   ZC diagonal[H.n];
   for (int i=0;i<H.m; i++) {
 #if (TYPE_OPERAND==3 || TYPE_OPERAND==4)
-    diag[i].value = std::norm(H.matrix[H.ind(i,i)]);
+    diag[i].value = H.matrix[H.ind(i,i)].real();
 #else
     diag[i].value = H.matrix[H.ind(i,i)];
 #endif
@@ -412,7 +412,11 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
   argsortCpp(diag);
   
   for (int i=0;i<num_eigs; i++) {
+#if (TYPE_OPERAND==3 || TYPE_OPERAND==4)
+    V.matrix[V.ind(diag[i].index,i)] = ZC{1,0};
+#else
     V.matrix[V.ind(diag[i].index,i)] = ZC{1};
+#endif
   }
   
   if (debug) printf(" Move D \n");
@@ -529,7 +533,8 @@ void davidson_rocm( Matrix  H,    // Hamiltonian matrix ?
       }
     }
 
-    if (converged_count == num_eigs) {
+    if (converged_count == num_eigs //|| norms[0] < tolerance) {
+      || norms[0] < tolerance) {
       printf("Davidson converged after %d iteration\n", iteration);
 
       EVa.readfromdevice();
@@ -663,8 +668,12 @@ int main(int argc, char* argv[]) {
 		std::min(it, H.m/n_eng),
 #if(TYPE_OPERAND==0  )
 		1e-3
-#elif(TYPE_OPERAND==1 || TYPE_OPERAND==3)
-		1e-4
+#elif(TYPE_OPERAND==3 )
+		1e-3
+#elif(TYPE_OPERAND==4)
+		1e-5
+#elif(TYPE_OPERAND==2)
+		1e-8
 #else
 		1e-8
 #endif
