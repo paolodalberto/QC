@@ -28,6 +28,8 @@ typedef float NORM_TYPE;
 typedef std::float_t ZC;
 static ZC ALPHA = 1.0;
 static ZC BETA  = 0.0;
+static ZC ONE = 1.0;
+static ZC ZERO  = 0.0;
 static ZC EPS  = 1e-6;
 #define GEMM  rocblas_hgemm
 #define SOLV  rocsolver_hsyev
@@ -40,6 +42,8 @@ typedef float NORM_TYPE;
 typedef float ZC;
 static ZC ALPHA = 1.0;
 static ZC BETA  = 0.0;
+static ZC ONE = 1.0;
+static ZC ZERO  = 0.0;
 #define GEMM  rocblas_sgemm
 #define SOLV  rocsolver_ssyev
 #define NORM_  rocblas_snrm2_strided_batched
@@ -52,6 +56,8 @@ typedef double NORM_TYPE;
 typedef double ZC;
 static ZC ALPHA = 1.0;
 static ZC BETA  = 0.0;
+static ZC ONE = 1.0;
+static ZC ZERO  = 0.0;
 #define GEMM  rocblas_dgemm
 #define SOLV  rocsolver_dsyev
 #define NORM_  rocblas_dnrm2_strided_batched
@@ -64,6 +70,8 @@ typedef double NORM_TYPE;
 typedef  rocblas_double_complex ZC;
 static ZC ALPHA{1.0,0.0};
 static ZC BETA{0.0,0.0};
+static ZC ONE{1.0,0.0};
+static ZC ZERO{0.0,0.0};
 static ZC EPS{ 1e-12, 1e-12};
 
 #define GEMM  rocblas_zgemm
@@ -77,6 +85,8 @@ typedef float NORM_TYPE;
 typedef rocblas_float_complex ZC;
 static ZC ALPHA{1.0,0.0};
 static ZC BETA{0.0,0.0};
+static ZC ONE{1.0,0.0};
+static ZC ZERO{0.0,0.0};
 static ZC EPS{ 1e-6, 1e-6};
 #define GEMM  rocblas_cgemm
 #define SOLV  rocsolver_cheev
@@ -115,9 +125,25 @@ struct matrix {
   int N;                       // Maximum cols
   Entry *matrix = 0; // host  
   Entry *d_matrix =0;            // device
+  bool gate = true;
+  int initialize_host_matrix(const Entry* initial_data) {
+    // Calculate total size needed
+    size_t total_elements = m * n;
+    size_t total_bytes = total_elements * sizeof(Entry);
 
+    // 1. Allocate the memory using malloc
+    alloc(true,false);
+
+    if (matrix == nullptr) {
+        std::cerr << "Memory allocation failed!" << std::endl;
+	return 0;
+    }
+
+    memcpy(matrix, initial_data, total_bytes);
+    return total_bytes;
+  }
   void free() {
-    if (matrix)   { std::free(matrix); matrix =0 }
+    if (matrix and !gate)   { std::free(matrix); matrix =0; }
     if (d_matrix) { CHECK_HIP_ERROR(hipFree(d_matrix)); d_matrix=0;}
   }
   void alloc(bool host , bool device  ) {

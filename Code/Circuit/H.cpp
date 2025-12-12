@@ -33,242 +33,10 @@
 // we define the computation double complex 
 
 #define TYPE_OPERAND 4 
-#include "davidson.h"
+#include "davidson.h"  // definition of matrices 
+#include "circuit.h"   // definition of Gate and Circuit
 
 
-
-
-/**********
- * Reference computation in basic c++
- * using regular pointers
- *
- */ 
-
-extern
-void cpu_zgemm_batched_b(int M, int N, int K, ZC alpha, 
-		       ZC* A, rocblas_stride ldA,
-		       ZC* B, rocblas_stride ldB,
-		       ZC beta,
-		       ZC* C, rocblas_stride ldC,
-		       int batchCount
-		       );
-/***
- * For batched computation we need to prepare the pointers
- */
-
-extern 
-void pre_gpu_gemm(
-		  int M, int N, int K, 
-		  ZC** A, rocblas_stride ldA, ZC *d_A,
-		  ZC** B, rocblas_stride ldB, ZC *d_B,
-		  ZC** C, rocblas_stride ldC, ZC *d_C,
-		  int batchCount
-		  );
-/***
- * After the pre you can run the execute 
- */
-extern 
-void gpu_zgemm_batched(
-		       rocblas_handle handle,
-		       int M, int N, int K, ZC alpha, 
-		       ZC** A, rocblas_stride ldA,
-		       ZC** B, rocblas_stride ldB,
-		       ZC beta,
-		       ZC** C, rocblas_stride ldC,
-		       int batchCount
-		       );
-
-
-
-
-/*****
- * this is column major and thus we will need to compute O = I * G^t
- * but I will transpose directly G  ...
- ***/
-
-void cpu_zgemm_batched_M(
-     int M, int N, int K, ZC alpha, 
-     Matrix &A,
-     Matrix &B,  // B is the small one the gate one 
-     ZC beta,
-     Matrix &C,
-     int batchCount) {
-  
-  cpu_zgemm_batched_b(
-	   A.m, B.m, A.n, alpha, 
-	   A.matrix, A.m, // I 
-	   B.matrix, B.m, // G^t
-	   ZC beta,
-	   C.matrix, C.m, // O
-	   int batchCount
-		      );
-  
-}
-
-
-
-
-
-/***************
- **  A circuit is a sequence of layers. This define the depth of the
- **  circuit. The layers is a sequence gates.  
-
- **  Each gate has the property that the order does not matter but
- **  they are NOT parallel.  Again take a look at the notes and the
- **  python implementation. There is an opportunity to fuse Gates to
- **  reduce the number of passes throught the state but this will
- **  affect the "rows" of the computation and thus the interference in
- **  caches.
- **
- **
- ********/
-
-
-
-struct gate {
-
-  /* Every one deserves a unique name so if you are
-   using the same gate identified by a name we
-   can do this quite easily and we do not need to
-   have multiple copies .. there will be only one
-   gate but it will be applied to different bits
-   thus the computation will be different
-  */
-  std::string name;  
-
-
-  int    bit_number; // the first bit where we apply the gate k
-                   
-
-  Matrix &I; // Input state : 2^n x 1: shared 
-  Matrix &U; // Gate matrix gxg      : shared and already transposed   
-  Matrix &O; // output state         : shared and this can be the input state  
-
-  int m=0; // index of there we apply the gate
-  int n=0; // kernel size and this is G kernel (mxk)
-  int k=0;
-
-  int batch_count =1;
-  ZC alpha = ALPHA;
-  ZC beta  = BETA; 
-
-  // host pointers the strided pointers for the computation in the host 
-  ZC **h_A_ptrs =0 ;
-  ZC **h_B_ptrs =0 ;
-  ZC **h_C_ptrs =0 ;
-
-  // device pointers  as above 
-  ZC **d_A_ptrs = 0 ;
-  ZC **d_B_ptrs =0 ;
-  ZC **d_C_ptrs =0;
-
-
-  
-  // We allocate the pointers only  
-  void alloc(bool host, bool device) {
-    if (host) { 
-      h_A_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
-      assert(h_A_ptrs!=0 && " h_A_ptrs did not make it");
-      h_B_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
-      assert(h_A_ptrs!=0 && " h_B_ptrs did not make it");
-      h_C_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
-      assert(h_A_ptrs!=0 && " h_C_ptrs did not make it");
-    }
-    if (device ) {
-      CHECK_HIP(hipMalloc((void**)&d_A_ptrs, batchCount * sizeof(ZC*)));
-      CHECK_HIP(hipMalloc((void**)&d_B_ptrs, batchCount * sizeof(ZC*)));
-      CHECK_HIP(hipMalloc((void**)&d_C_ptrs, batchCount * sizeof(ZC*)));
-    }
-  }
-
-  // we free the pointers and the gate
-  void free() {
-    
-    if (h_A_ptrs) { free(h_A_ptrs); h_A_ptrs=0;} 
-    if (h_B_ptrs) { free(h_B_ptrs); h_B_ptrs=0;} 
-    if (h_C_ptrs) { free(h_C_ptrs); h_C_ptrs=0;} 
-
-    CHECK_HIP_ERROR(hipFree(d_A_ptrs));
-    CHECK_HIP_ERROR(hipFree(d_B_ptrs));
-    CHECK_HIP_ERROR(hipFree(d_C_ptrs));
-
-    // gate
-    U.free();
-  }
-
-  
-  void init() {
-    // U is square and we allocate in the host and the device
-    U.alloc(true, true);
-
-    // remember we are doing O = I* U (where U is U^t)
-    
-    int B = I.m; // this is the state 2^n 
-    batch_count = B - ((1<<bit_number)+U.m);
-
-    m = 1<<bit_number;
-    n = U.n; 
-    k = U.m;
-
-    alloc(true,true)
-    pre_gpu_gemm(m,n,k,
-		 h_A_ptrs,m,U.matrix,
-		 h_B_ptrs,ldB,I.matrix,
-		 h_C_ptrs,ldC,O.matrix,
-		 batchCount);
-
-  }
-  
-  
-  
-  void step(rocblas_handle handle) {
-
-    const rocblas_stride strideA = m*n;
-    const rocblas_stride strideB = k*n;
-    const rocblas_stride strideC = n * n;
-    const size_t total_elements_A = strideA * batch_count;
-    const size_t total_elements_B = strideB * batch_count;
-    const size_t total_elements_C = strideC * batch_count;
-
-
-    CHECK_ROCBLAS_ERROR(
-	gpu_zgemm_batched(
-	    handle,
-	    m, n, k, alpha, 
-	    d_A_ptrs, strideA,
-	    d_B_ptrs, strideB,
-	    beta,
-	    d_C_ptrs, strideC,
-	    batchCount
-			  );
-  
-};
-
-typedef struct gate Gate;
-
-struct schedule {
-  
-  Matrix &I;  // Input state 
-  Matrix &O;  // Output state
-  std::vector<std::vector<Gate>> schedule; 
-
-  // we move all the matrices into the 
-  void init(){
-    for (std::vector<Gate> &level  : schedule)
-      for (Gate h : level )
-	h.init();
-    
-  }
-  
-  
-  void forward(rocblas_handle handle) {
-    for (std::vector<Circuit> &level  : schedule)
-      for (Circuit h : level )
-	h.step(handle);
-  }
-};
-
-typedef struct schedule Circuit;
 
 
 
@@ -276,23 +44,23 @@ typedef struct schedule Circuit;
 
 int main() {
   rocblas_handle handle;
-    CHECK_ROCBLAS_ERROR(rocblas_create_handle(&handle));
-
-    // Matrix dimensions: A (N x K), B (K x N), C (N x N)
-    const int N = 4;
-    const int K = 4;
-    const int BATCH_COUNT = 3;
-
-    // Define strides (memory distance between start of matrices)
-    const rocblas_stride strideA = N * K;
-    const rocblas_stride strideB = K * N;
-    const rocblas_stride strideC = N * N;
-    const size_t total_elements_A = strideA * BATCH_COUNT;
-    const size_t total_elements_B = strideB * BATCH_COUNT;
-    const size_t total_elements_C = strideC * BATCH_COUNT;
-
-    // --- 1. Host side data initialization ---
-    std::vector<ZC> h_A(total_elements_A);
+  CHECK_ROCBLAS_ERROR(rocblas_create_handle(&handle));
+    
+  // Matrix dimensions: A (N x K), B (K x N), C (N x N)
+  const int N = 4;
+  const int K = 4;
+  const int BATCH_COUNT = 3;
+  
+  // Define strides (memory distance between start of matrices)
+  const rocblas_stride strideA = N * K;
+  const rocblas_stride strideB = K * N;
+  const rocblas_stride strideC = N * N;
+  const size_t total_elements_A = strideA * BATCH_COUNT;
+  const size_t total_elements_B = strideB * BATCH_COUNT;
+  const size_t total_elements_C = strideC * BATCH_COUNT;
+  
+  // --- 1. Host side data initialization ---
+  std::vector<ZC> h_A(total_elements_A);
     std::vector<ZC> h_B(total_elements_B);
     std::vector<ZC> h_C(total_elements_C, make_complex(0.0, 0.0));
     // A separate CPU ground truth vector for verification
