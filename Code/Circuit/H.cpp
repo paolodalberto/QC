@@ -1,6 +1,25 @@
 
 
 
+/*********************************************************
+ * The Idea is simple: The computation of a Gate G on a state S is
+ * expressed by a a kronecker computation (x) as 
+ *
+ * (I_n (x) G (x) I_k) * S
+ *
+ * I_n stands for an identity matrix and n amd k mean the number of
+ * bit that is the Gate applied to m bits the G is applied to bit k,
+ * k+1, ... k+m-1 and the total number of bits is n + m + k and the
+ * state is of size 2^(n+m+k). 
+ *
+ * We showed this in the Python implementation and also we show that
+ * this boils down to the computation of 2^n matrix multiplicaitons
+ * (strided) G over the remainder state S[0... 2^(k+m)] as a matrix of
+ * size 2^m x 2^k ... so far brilliant
+ *
+ **************/
+
+
 #include <iostream>
 #include <vector>
 #include <hip/hip_runtime_api.h>
@@ -9,33 +28,13 @@
 #include <cmath>
 #include <cstdlib>
 
-/*
-#include <iostream>
-#include <vector>
-#include <hip/hip_runtime_api.h>
-#include <rocblas.h>
-#include <cstdlib>
-*/
-#define CHECK_HIP_ERROR(call) do {                                   \
-    hipError_t err = call;                                           \
-    if (err != hipSuccess) {                                         \
-        std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__; \
-        std::cerr << " : " << hipGetErrorString(err) << std::endl;   \
-        exit(EXIT_FAILURE);                                          \
-    }                                                                \
-} while (0)
 
-#define CHECK_ROCBLAS_ERROR(call) do {                                    \
-    rocblas_status status = call;                                         \
-    if (status != rocblas_status_success) {                               \
-        std::cerr << "rocBLAS error at " << __FILE__ << ":" << __LINE__;  \
-        std::cerr << " : " << status << std::endl;                        \
-        exit(EXIT_FAILURE);                                               \
-    }                                                                     \
-} while (0)
 
-typedef rocblas_double_complex ZC;
-//rocblas_complex_num<double>
+// we define the computation double complex 
+
+#define TYPE_OPERAND 4 
+#include "davidson.h"
+
 
 
 
@@ -79,82 +78,6 @@ void gpu_zgemm_batched(
 		       int batchCount
 		       );
 
-/******
- * pointers are a little too little and this is a way to wrap a matrix
- * nicely.
- *
- ******/
-
-
-struct matrix {
-
-  // struct as a class members are all public
-  int m;                       // rows
-  int n;                       // cols
-  int M;                       // Maximum rows LD
-  int N;                       // Maximum cols
-  ZC *matrix = 0; // host  
-  ZC *d_matrix =0;            // device
-  int batch = 0;
-
-  
-  void free() {
-    if (matrix) std::free(matrix);
-    if (d_matrix) CHECK_HIP_ERROR(hipFree(d_matrix));
-  }
-  void alloc(bool host , bool device  ) {
-    if (size()>0) {
-      //printf(" Allocated %d * %d = %d elements \n", M, N,M*N);
-      if (host and matrix==0)     matrix = (ZC*) std::calloc(M*N,sizeof(ZC));
-      if (matrix == NULL) {
-	std::cerr << "Memory allocation failed!" << std::endl;
-	// Handle the error, e.g., exit, throw an exception, or attempt recovery
-	exit(EXIT_FAILURE);
-      }
-      if (device and d_matrix==0) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(ZC)));		      
-    }
-  }
-  void readfromdevice() {
-         CHECK_HIP_ERROR(hipMemcpy(matrix , d_matrix, size() * sizeof(ZC), hipMemcpyHostToDevice));
-  }
-  void writetodevice() {
-         CHECK_HIP_ERROR(hipMemcpy(d_matrix , matrix, size() * sizeof(ZC), hipMemcpyHostToDevice));
-
-  }
-
-  void init() {
-    for (int i = 0; i < m * n; ++i) matrix[i] = ZC{ 1.1 *(i % 11), 1.2*(i%17)};;
-  };
-  void zero() {
-    for (int i = 0; i < m * n; ++i) matrix[i] = ZC{ 0.0, 0.0 };
-  };
-  int ind(int i, int j, bool t=false)    {
-    if (t)
-      return i*n +j;
-    else
-      return i +m*j;
-    
-  }
-  
-  int size() { return m*n; } 
-  void print(bool t=false) {
-    int MM = (m>10)?10: m;
-    int NN = (n>10)?10: n;
-    ZC z;
-    printf("Column Major M,N = %d,%d \n", m,n);
-    
-    if (t)
-	for (int i = 0; i < MM; ++i) {
-	  for (int j = 0; j < NN; ++j) {
-	    z =  matrix[ind(i,j)];
-	    //printf("%0.2f %d %d %d ", matrix[ind(i,j)],i,j,ind(i,j));
-	    std::cout << "(" << z  << ")"; 
-	}
-	printf("\n");
-      }
-  };
-};
-typedef struct matrix Matrix;
 
 
 
@@ -184,31 +107,98 @@ void cpu_zgemm_batched_M(
 
 
 
-struct circuit {
-  std::string name;
-  int    bit_number;
+
+
+/***************
+ **  A circuit is a sequence of layers. This define the depth of the
+ **  circuit. The layers is a sequence gates.  
+
+ **  Each gate has the property that the order does not matter but
+ **  they are NOT parallel.  Again take a look at the notes and the
+ **  python implementation. There is an opportunity to fuse Gates to
+ **  reduce the number of passes throught the state but this will
+ **  affect the "rows" of the computation and thus the interference in
+ **  caches.
+ **
+ **
+ ********/
+
+
+
+struct gate {
+
+  /* Every one deserves a unique name so if you are
+   using the same gate identified by a name we
+   can do this quite easily and we do not need to
+   have multiple copies .. there will be only one
+   gate but it will be applied to different bits
+   thus the computation will be different
+  */
+  std::string name;  
+
+
+  int    bit_number; // the first bit where we apply the gate k
+                   
+
   Matrix &I; // Input state : 2^n x 1: shared 
-  Matrix &U; // Gate matrix gxg      : shared and already transposed  
-  Matrix &O; // output state         : shared  
-  int m=0;
-  int n=0;
+  Matrix &U; // Gate matrix gxg      : shared and already transposed   
+  Matrix &O; // output state         : shared and this can be the input state  
+
+  int m=0; // index of there we apply the gate
+  int n=0; // kernel size and this is G kernel (mxk)
   int k=0;
+
   int batch_count =1;
-  ZC alpha = ZC{1.0, 0.0};
-  ZC beta  = ZC{0.0, 0.0};  // beta = 0.0 + 0.0i
+  ZC alpha = ALPHA;
+  ZC beta  = BETA; 
 
-  // host pointers 
-  ZC **h_A_ptrs;
-  ZC **h_B_ptrs;
-  ZC **h_C_ptrs;
+  // host pointers the strided pointers for the computation in the host 
+  ZC **h_A_ptrs =0 ;
+  ZC **h_B_ptrs =0 ;
+  ZC **h_C_ptrs =0 ;
 
-  // device pointers 
-  ZC **d_A_ptrs;
-  ZC **d_B_ptrs;
-  ZC **d_C_ptrs;
+  // device pointers  as above 
+  ZC **d_A_ptrs = 0 ;
+  ZC **d_B_ptrs =0 ;
+  ZC **d_C_ptrs =0;
 
+
+  
+  // We allocate the pointers only  
+  void alloc(bool host, bool device) {
+    if (host) { 
+      h_A_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
+      assert(h_A_ptrs!=0 && " h_A_ptrs did not make it");
+      h_B_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
+      assert(h_A_ptrs!=0 && " h_B_ptrs did not make it");
+      h_C_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
+      assert(h_A_ptrs!=0 && " h_C_ptrs did not make it");
+    }
+    if (device ) {
+      CHECK_HIP(hipMalloc((void**)&d_A_ptrs, batchCount * sizeof(ZC*)));
+      CHECK_HIP(hipMalloc((void**)&d_B_ptrs, batchCount * sizeof(ZC*)));
+      CHECK_HIP(hipMalloc((void**)&d_C_ptrs, batchCount * sizeof(ZC*)));
+    }
+  }
+
+  // we free the pointers and the gate
+  void free() {
+    
+    if (h_A_ptrs) { free(h_A_ptrs); h_A_ptrs=0;} 
+    if (h_B_ptrs) { free(h_B_ptrs); h_B_ptrs=0;} 
+    if (h_C_ptrs) { free(h_C_ptrs); h_C_ptrs=0;} 
+
+    CHECK_HIP_ERROR(hipFree(d_A_ptrs));
+    CHECK_HIP_ERROR(hipFree(d_B_ptrs));
+    CHECK_HIP_ERROR(hipFree(d_C_ptrs));
+
+    // gate
+    U.free();
+  }
+
+  
   void init() {
-    // U  is square 
+    // U is square and we allocate in the host and the device
     U.alloc(true, true);
 
     // remember we are doing O = I* U (where U is U^t)
@@ -220,15 +210,7 @@ struct circuit {
     n = U.n; 
     k = U.m;
 
-    
-    ZC **h_A_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
-    ZC **h_B_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
-    ZC **h_C_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
-    
-    CHECK_HIP(hipMalloc((void**)&d_A_ptrs, batchCount * sizeof(ZC*)));
-    CHECK_HIP(hipMalloc((void**)&d_B_ptrs, batchCount * sizeof(ZC*)));
-    CHECK_HIP(hipMalloc((void**)&d_C_ptrs, batchCount * sizeof(ZC*)));
-
+    alloc(true,true)
     pre_gpu_gemm(m,n,k,
 		 h_A_ptrs,m,U.matrix,
 		 h_B_ptrs,ldB,I.matrix,
@@ -237,15 +219,6 @@ struct circuit {
 
   }
   
-  void free() {
-    U.free();
-    free(h_A_ptrs);
-    free(h_B_ptrs);
-    free(h_C_ptrs);
-    CHECK_HIP_ERROR(hipFree(d_A_ptrs));
-    CHECK_HIP_ERROR(hipFree(d_B_ptrs));
-    CHECK_HIP_ERROR(hipFree(d_C_ptrs));
-  }
   
   
   void step(rocblas_handle handle) {
@@ -271,17 +244,18 @@ struct circuit {
   
 };
 
-typedef struct circuit Circuit;
+typedef struct gate Gate;
 
 struct schedule {
-  Matrix &I;
-  Matrix &O;
-  std::vector<std::vector<Circuit>> schedule; 
+  
+  Matrix &I;  // Input state 
+  Matrix &O;  // Output state
+  std::vector<std::vector<Gate>> schedule; 
 
   // we move all the matrices into the 
   void init(){
-    for (std::vector<Circuit> &level  : schedule)
-      for (Circuit h : level )
+    for (std::vector<Gate> &level  : schedule)
+      for (Gate h : level )
 	h.init();
     
   }
@@ -294,7 +268,7 @@ struct schedule {
   }
 };
 
-typedef struct schedule Schedule;
+typedef struct schedule Circuit;
 
 
 
