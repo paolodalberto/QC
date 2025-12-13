@@ -33,31 +33,48 @@
 #include "davidson.h"  // definition of matrices 
 #include "circuit.h"   // definition of Gate and Circuit
 
-static SQ2 = std::sqrt(x);
 
-static const ZC hadamard_matrix[] =  {  SQ2*ONE, SQ2*ONE, SQ2*ONE,-SQ2*ONE }; 
-const Gate Hadamard("hadamard",
-	      Matrix H{2,2,2,2, hadamard_matrix}
-	      );
+// Construction of gates
+static NORM_TYPE SQ2 = std::sqrt(2);
+/** 1/sqrt(2) | 1  1 |
+ *            | 1 -1 | 
+ * Stored in column major 
+ */
 
-static const ZC identity_matrix[] =  {  ONE, ZERO, ZERO, ONE }; 
-const Gate Identity("Identity",
-	      Matrix H{2,2,2,2,identity_matrix}
-	      );
+static ZC hadamard_matrix[] =  {  SQ2*ONE, SQ2*ONE, SQ2*ONE,-SQ2*ONE }; 
+Matrix HM_{2,2,2,2, hadamard_matrix};
+Gate Hadamard{"hadamard", HM_};
 
-static const ZC pauli_x_matrix[] =  {  ZERO, ONE, ONE, ZERO }; 
-const Gate Pauli_X("Identity",
-	      Matrix H{2,2,2,2,identity_matrix}
-	      );
+/**  | 1  0 |
+ *   | 0  1 | 
+ * Stored in column major but complex numbers  
+ */
+static ZC identity_matrix[] =  {  ONE, ZERO, ZERO, ONE }; 
+Matrix IM_{2,2,2,2, identity_matrix};
+Gate Identity{"Identity",IM_};
 
-static const ZC pauli_y_matrix[] =  { ZERO, 1.0i, -1.0i* ONE, ZERO  }; 
-const Gate Pauli_Y("Identity",
-	      Matrix H{2,2,2,2,identity_matrix}
-	      );
-static const ZC pauli_y_matrix[] =  { ONE, ZERO, ZERO, -ONE }; 
-const Gate Pauli_Z("Identity",
-	      Matrix H{2,2,2,2,identity_matrix}
-	      );
+/**  | 0 1 |
+ *   | 1 0 | 
+ * Stored in column major but complex numbers  x() or not
+ */
+static ZC pauli_x_matrix[] =  {  ZERO, ONE, ONE, ZERO };
+Matrix PXM_{2,2,2,2, pauli_x_matrix};
+const Gate Pauli_X{"PauliX", PXM_};
 
+/**  | 0  -i |
+ *   | i  0 | 
+ * Stored in column major but complex numbers  
+ */
+static ZC pauli_y_matrix[] =  { ZERO, 1.0i*ONE, -1.0i* ONE, ZERO  }; 
+Matrix PYM_{2,2,2,2, pauli_y_matrix};
+const Gate Pauli_Y{"PauliY",PYM_};
+
+/**  | 1  0 |
+ *   | 0  -1 | 
+ * Stored in column major but complex numbers  
+ */
+static const ZC pauli_z_matrix[] =  { ONE, ZERO, ZERO, -ONE }; 
+Matrix PZM_{2,2,2,2, pauli_x_matrix};
+const Gate Pauli_Z{"PauliZ", PZM_};
   
 	     

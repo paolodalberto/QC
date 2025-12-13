@@ -96,15 +96,16 @@ struct gate {
    gate but it will be applied to different bits
    thus the computation will be different
   */
+
   std::string name;  
+  Matrix &U; // Gate matrix gxg      : shared and already transposed   
+  
 
-
-  int    bit_number; // the first bit where we apply the gate k
+  int    bit_number=0; // the first bit where we apply the gate k
                    
 
-  Matrix &I; // Input state : 2^n x 1: shared 
-  Matrix &U; // Gate matrix gxg      : shared and already transposed   
-  Matrix &O; // output state         : shared and this can be the input state  
+  Matrix I; // Input state : 2^n x 1: shared 
+  Matrix O; // output state         : shared and this can be the input state  
 
   int m=0; // index of there we apply the gate
   int n=0; // kernel size and this is G kernel (mxk)
@@ -179,8 +180,8 @@ struct gate {
     alloc(true,true);
     pre_gpu_gemm(m,n,k,
 		 h_A_ptrs,m,U.matrix,
-		 h_B_ptrs,ldB,I.matrix,
-		 h_C_ptrs,ldC,O.matrix,
+		 h_B_ptrs,U.m,I.matrix,
+		 h_C_ptrs,m,O.matrix,
 		 batch_count);
     
   }
@@ -197,19 +198,18 @@ struct gate {
     const size_t total_elements_C = strideC * batch_count;
     
     
-    CHECK_ROCBLAS_ERROR(
-	gpu_zgemm_batched(
-	    handle,
-	    m, n, k, alpha, 
-	    d_A_ptrs, strideA,
-	    d_B_ptrs, strideB,
-	    beta,
-	    d_C_ptrs, strideC,
-	    batch_count
-			  );
-	
-			)
-      }
+
+    gpu_zgemm_batched(
+	handle,
+	m, n, k, alpha, 
+	d_A_ptrs, strideA,
+	d_B_ptrs, strideB,
+	beta,
+	d_C_ptrs, strideC,
+	batch_count
+   );
+      
+  }
 };
 
 // When you see a Gate is a struct     
@@ -237,8 +237,8 @@ struct schedule {
   
   
   void forward(rocblas_handle handle) {
-    for (std::vector<Circuit> &level  : schedule)
-      for (Circuit h : level )
+    for (std::vector<Gate> &level  : schedule)
+      for (Gate h : level )
 	h.step(handle);
   }
 };

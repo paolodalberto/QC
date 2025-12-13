@@ -96,20 +96,20 @@ static ZC EPS{ 1e-6, 1e-6};
 #endif
 
 
-#define CHECK_HIP_ERROR(call) do {		\
-    hipError_t err = call; \
+#define CHECK_HIP_ERROR(call) {			\
+    hipError_t err = call;						\
     if (err != hipSuccess) {						\
       std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__ << " : " \
 		<< hipGetErrorString(err) << std::endl;			\
       exit(EXIT_FAILURE);						\
     }									\
-  } while (0)
+  } 
 
 #define CHECK_ROCBLAS_STATUS(call)  {					\
     rocblas_status status = call;					\
     if (status != rocblas_status_success) {				\
       std::cerr << "rocm error at " << __FILE__ << ":" << __LINE__ << ":" \
-		<< rocblas_status_to_string(status) << std::endl;		\
+		<< rocblas_status_to_string(status) << std::endl;	\
       exit(EXIT_FAILURE);						\
     }									\
   }

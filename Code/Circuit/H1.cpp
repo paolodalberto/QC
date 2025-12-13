@@ -22,22 +22,22 @@ typedef rocblas_double_complex ZC;
 #include <math.h> // For abs() used in verification
 
 // Helper macro for checking HIP errors
-#define CHECK_HIP(func) { \
-    hipError_t e = func; \
-    if (e != hipSuccess) { \
-        printf("HIP error at %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(e)); \
-        exit(EXIT_FAILURE); \
-    } \
-}
+#define CHECK_HIP(func) {			\
+    hipError_t e = func;			\
+    if (e != hipSuccess) {						\
+      printf("HIP error at %s:%d: %s\n", __FILE__, __LINE__, hipGetErrorString(e)); \
+      exit(EXIT_FAILURE);						\
+    }									\
+  }
 
 // Helper macro for checking rocBLAS errors
-#define CHECK_ROCBLAS(func) { \
-    rocblas_status s = func; \
-    if (s != rocblas_status_success) { \
-        printf("rocBLAS error at %s:%d\n", __FILE__, __LINE__); \
-        exit(EXIT_FAILURE); \
-    } \art 
-}
+#define CHECK_ROCBLAS(func) {					\
+    rocblas_status s = func;					\
+    if (s != rocblas_status_success) {				\
+      printf("rocBLAS error at %s:%d\n", __FILE__, __LINE__);	\
+      exit(EXIT_FAILURE);					\
+    }								\
+  }
 
 
 
