@@ -29,7 +29,6 @@
 #include <cstdlib>
 
 
-
 // we define the computation double complex 
 
 #define TYPE_OPERAND 4 
@@ -38,118 +37,105 @@
 
 
 
+int set_device(int id) {
+  int deviceCount;
+  CHECK_HIP_ERROR(hipGetDeviceCount(&deviceCount));
+
+  if (deviceCount == 0) {
+    std::cerr << "No HIP devices found!" << std::endl;
+    return -1;
+  }
+
+  // Enumerate devices and their properties (optional, but good practice)
+  for (int i = 0; i < deviceCount; ++i) {
+    hipDeviceProp_t props;
+    CHECK_HIP_ERROR(hipGetDeviceProperties(&props, i));
+    std::cout << "Device " << i << ": " << props.name << std::endl;
+  }
+
+  // Set the desired device (e.g., device 0)
+  int desiredDevice = id; 
+  if (desiredDevice < deviceCount) {
+    CHECK_HIP_ERROR(hipSetDevice(desiredDevice));
+    std::cout << "Successfully set device to " << desiredDevice << std::endl;
+  } else {
+    std::cerr << "Invalid device index: " << desiredDevice << std::endl;
+    return -1;
+  }
+  return id;
+}
+
+
+/*****
+ * this is column major and thus we will need to compute O = I * G^t
+ * but I will transpose directly G  ...
+ ***/
+
+void cpu_zgemm_batched_M(
+     int M, int N, int K, ZC alpha, 
+     Matrix &A,
+     Matrix &B,  // B is the small one the gate one 
+     ZC beta,
+     Matrix &C,
+     int batchCount) {
+  
+  cpu_zgemm_batched_b(
+	   A.m, B.m, A.n, alpha, 
+	   A.matrix, A.m, // I 
+	   B.matrix, B.m, // G^t
+	   beta,
+	   C.matrix, C.m, // O
+	   batchCount
+		      );
+  
+}
 
 
 
+extern Gate CNot;
+extern const Gate Hadamard;
 
-int main() {
+
+int main(int argc, char* argv[]) {
+   // Method 1: Using atoi (C-style, simpler but less robust)
+  int mydevice  = (argc>1)? std::atoi(argv[1]):0;
+  int result =  set_device(mydevice);
+  int M = 2;
+  
+  printf(" device: %d ;  State Bits %d \n", mydevice, M);
+  
   rocblas_handle handle;
-  CHECK_ROCBLAS_ERROR(rocblas_create_handle(&handle));
-    
-  // Matrix dimensions: A (N x K), B (K x N), C (N x N)
-  const int N = 4;
-  const int K = 4;
-  const int BATCH_COUNT = 3;
+  CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
+
+
+  Matrix Input = {M,1,M,1};
+  Input.alloc(true,true);
+
+
+
+  // building teh circuit like we belong
+  Gate H0 = Hadamard; H0.set_index(0);
+  Gate H1 = Hadamard; H0.set_index(1);
+  Gate CN = CNot;     CN.set_index(0);
   
-  // Define strides (memory distance between start of matrices)
-  const rocblas_stride strideA = N * K;
-  const rocblas_stride strideB = K * N;
-  const rocblas_stride strideC = N * N;
-  const size_t total_elements_A = strideA * BATCH_COUNT;
-  const size_t total_elements_B = strideB * BATCH_COUNT;
-  const size_t total_elements_C = strideC * BATCH_COUNT;
+  std::vector<Gate> layer1{H0,H1};
+  std::vector<Gate> layer2{CN};
   
-  // --- 1. Host side data initialization ---
-  std::vector<ZC> h_A(total_elements_A);
-    std::vector<ZC> h_B(total_elements_B);
-    std::vector<ZC> h_C(total_elements_C, make_complex(0.0, 0.0));
-    // A separate CPU ground truth vector for verification
-    std::vector<ZC> h_C_cpu_verify(total_elements_C, make_complex(0.0, 0.0));
+  std::vector<std::vector<Gate>> schedule{layer1, layer2};
+  
+  Circuit Bell{Input, Input, schedule};
 
-    // Fill A, B, and C with some values (example: 1.0 + 0.0i, etc.)
-    for (size_t i = 0; i < total_elements_A; ++i) h_A[i] = make_complex(1.0, 0.0);
-    for (size_t i = 0; i < total_elements_B; ++i) h_B[i] = make_complex(0.5, 0.0);
-    // Initialize C with ones so we can test the beta scaling
-    for (size_t i = 0; i < total_elements_C; ++i) h_C[i] = make_complex(1.0, 0.0); 
+  
+  Bell.init();
+  Bell.forward(handle);
 
-    // Initialize the CPU verification array with the same start values as h_C
-    h_C_cpu_verify = h_C;
+  
+  for (std::vector<Gate> &level  : schedule)
+    for (Gate h : level )
+      h.free();
+  
+  Input.free();
 
-    // Scaling factors: C = 1.0 * A * B + 1.0 * C 
-    ZC alpha = make_complex(1.0, 0.0);
-    ZC beta  = make_complex(1.0, 0.0);
+  CHECK_ROCBLAS_STATUS(rocblas_destroy_handle(handle));
 
-    // --- 2. Device memory allocation and data transfer ---
-    ZC *d_A, *d_B, *d_C;
-    CHECK_HIP_ERROR(hipMalloc(&d_A, total_elements_A * sizeof(ZC)));
-    CHECK_HIP_ERROR(hipMalloc(&d_B, total_elements_B * sizeof(ZC)));
-    CHECK_HIP_ERROR(hipMalloc(&d_C, total_elements_C * sizeof(ZC)));
-
-    CHECK_HIP_ERROR(hipMemcpy(d_A, h_A.data(), total_elements_A * sizeof(ZC), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_B, h_B.data(), total_elements_B * sizeof(ZC), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_C, h_C.data(), total_elements_C * sizeof(ZC), hipMemcpyHostToDevice));
-
-    // --- 3. Perform the rocBLAS computation ---
-    // Here we compute C = alpha * A * B + beta * C
-    CHECK_ROCBLAS(rocblas_zgemm_strided_batched(
-        handle,
-        rocblas_operation_none, 
-        rocblas_operation_none, 
-        N,           // M
-        N,           // N
-        K,           // K
-        &alpha,      
-        d_A,         
-        N,           // lda
-        strideA,     
-        d_B,         
-        K,           // ldb
-        strideB,     
-        &beta,       
-        d_C,         // Output pointer
-        N,           // ldc
-        strideC,     
-        BATCH_COUNT  
-    ));
-
-    // --- 4. Verification Step ---
-    // Synchronize the device and copy results back to host
-    CHECK_HIP_ERROR(hipDeviceSynchronize());
-    std::vector<ZC> h_C_gpu_result(total_elements_C);
-    CHECK_HIP_ERROR(hipMemcpy(h_C_gpu_result.data(), d_C, total_elements_C * sizeof(ZC), hipMemcpyDeviceToHost));
-
-    // Compute the CPU ground truth result
-    cpu_zgemm(N, N, K, alpha, h_A, strideA, h_B, strideB, beta, h_C_cpu_verify, strideC, BATCH_COUNT);
-
-    // Compare results
-    bool success = true;
-    double tolerance = 1e-9;
-    for (size_t i = 0; i < total_elements_C; ++i) {
-        double gpu_real = hipCreal(h_C_gpu_result[i]);
-        double cpu_real = hipCreal(h_C_cpu_verify[i]);
-        double gpu_imag = hipCimag(h_C_gpu_result[i]);
-        double cpu_imag = hipCimag(h_C_cpu_verify[i]);
-
-        if (std::abs(gpu_real - cpu_real) > tolerance || std::abs(gpu_imag - cpu_imag) > tolerance) {
-            std::cerr << "Mismatch at index " << i << ": GPU (" 
-                      << gpu_real << ", " << gpu_imag << ") vs CPU (" 
-                      << cpu_real << ", " << cpu_imag << ")" << std::endl;
-            success = false;
-            break;
-        }
-    }
-
-    if (success) {
-        std::cout << "rocBLAS strided batched ZGEMM test PASSED!" << std::endl;
-    } else {
-        std::cout << "rocBLAS strided batched ZGEMM test FAILED!" << std::endl;
-    }
-
-    // --- 5. Cleanup ---
-    CHECK_HIP_ERROR(hipFree(d_A));
-    CHECK_HIP_ERROR(hipFree(d_B));
-    CHECK_HIP_ERROR(hipFree(d_C));
-    CHECK_ROCBLAS_ERROR(rocblas_destroy_handle(handle));
-
-    return success ? EXIT_SUCCESS : EXIT_FAILURE;
- }
+}

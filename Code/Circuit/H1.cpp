@@ -41,6 +41,7 @@ typedef rocblas_double_complex ZC;
 
 
 
+
 // Helper function for host-side matrix multiplication verification (standard C++ implementation)
 void cpu_zgemm_batched(int M, int N, int K, ZC alpha, 
                ZC* A, rocblas_stride ldA,
@@ -107,6 +108,7 @@ void cpu_zgemm_batched_b(int M, int N, int K, ZC alpha,
 
 
 
+
 void pre_gpu_gemm(
 	 int M, int N, int K, 
 	 ZC** A, rocblas_stride ldA, ZC *d_A,
@@ -162,7 +164,7 @@ void gpu_zgemm_batched(
 
 
 
-
+#ifdef MAIN_HERE
 
 int main() {
     // 1. Setup rocBLAS handle
@@ -322,3 +324,4 @@ int main() {
 
     return 0;
 }
+#endif

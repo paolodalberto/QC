@@ -1,3 +1,6 @@
+#pragma once 
+
+
 
 /**********
  * Reference computation in basic c++
@@ -43,29 +46,6 @@ void gpu_zgemm_batched(
 
 
 
-/*****
- * this is column major and thus we will need to compute O = I * G^t
- * but I will transpose directly G  ...
- ***/
-
-void cpu_zgemm_batched_M(
-     int M, int N, int K, ZC alpha, 
-     Matrix &A,
-     Matrix &B,  // B is the small one the gate one 
-     ZC beta,
-     Matrix &C,
-     int batchCount) {
-  
-  cpu_zgemm_batched_b(
-	   A.m, B.m, A.n, alpha, 
-	   A.matrix, A.m, // I 
-	   B.matrix, B.m, // G^t
-	   beta,
-	   C.matrix, C.m, // O
-	   batchCount
-		      );
-  
-}
 
 
 
@@ -125,6 +105,8 @@ struct gate {
   ZC **d_B_ptrs =0 ;
   ZC **d_C_ptrs =0;
 
+  int index( unsigned int bit) {return 1<<bit;}
+  void set_index(int bit) { m =  1<<bit;}
 
   
   // We allocate the pointers only  
@@ -234,7 +216,7 @@ struct schedule {
 	h.init();
     
   }
-  
+
   
   void forward(rocblas_handle handle) {
     for (std::vector<Gate> &level  : schedule)
