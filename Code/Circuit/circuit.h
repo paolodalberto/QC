@@ -154,6 +154,8 @@ struct gate {
     
     int B = I.m; // this is the state 2^n 
     batch_count = B - ((1<<bit_number)+U.m);
+    
+    printf(" B %d batch_count %d \n", B, batch_count);
 
     m = 1<<bit_number;
     n = U.n; 
@@ -168,7 +170,14 @@ struct gate {
     
   }
   
-  
+  void print(bool t=false) {
+    std::cout << ">>>>>> Gate " <<  name << "\n"; 
+    printf("Bit %d \n", m);
+    printf("Batch %d \n",batch_count );
+    U.print(t);
+    std::cout << "<<<<<< Gate " <<  name << "\n"; 
+
+  }
   
   void step(rocblas_handle handle) {
     
@@ -222,6 +231,16 @@ struct schedule {
     for (std::vector<Gate> &level  : schedule)
       for (Gate h : level )
 	h.step(handle);
+  }
+  void print(bool  t=false)  {
+    int l =0;
+    printf("Circuit \n");
+    for (std::vector<Gate> &level  : schedule) {
+      printf("Level %d \n", l++);
+      for (Gate h : level )
+	h.print(t);
+    }
+    printf("Circuit \n");
   }
 };
 

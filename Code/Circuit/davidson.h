@@ -149,8 +149,11 @@ struct matrix {
   void alloc(bool host , bool device  ) {
     if (size()>0) {
       //printf(" Allocated %d * %d = %d elements \n", M, N,M*N);
-      if (host)   matrix = (Entry*) std::calloc(M*N,sizeof(Entry));
-      if (device) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(Entry)));		      
+      if (host and matrix==0)   {
+	matrix = (Entry*) std::calloc(M*N,sizeof(Entry));
+	assert(matrix!=0 && " Failed to allocate Doh\n");
+      }
+      if (device and d_matrix==0) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(Entry)));		      
     }
   }
   void readfromdevice() {

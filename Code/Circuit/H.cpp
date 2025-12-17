@@ -111,7 +111,7 @@ int main(int argc, char* argv[]) {
   Matrix Input = {M,1,M,1};
   Input.alloc(true,true);
 
-
+  CNot.print(true);
 
   // building teh circuit like we belong
   Gate H0 = Hadamard; H0.set_index(0);
@@ -125,8 +125,12 @@ int main(int argc, char* argv[]) {
   
   Circuit Bell{Input, Input, schedule};
 
+  Bell.print(true);
   
   Bell.init();
+  Bell.print(true);
+
+
   Bell.forward(handle);
 
   

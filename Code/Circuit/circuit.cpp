@@ -65,6 +65,7 @@ Gate Pauli_X{"PauliX", PXM_};
  *   | i  0 | 
  * Stored in column major but complex numbers  
  */
+
 static ZC pauli_y_matrix[] =  { ZERO, 1.0i*ONE, -1.0i* ONE, ZERO  }; 
 Matrix PYM_{2,2,2,2, pauli_y_matrix};
 Gate Pauli_Y{"PauliY",PYM_};
@@ -86,12 +87,12 @@ const Gate Pauli_Z{"PauliZ", PZM_};
  
  * Stored in column major but complex numbers  
  */
-static const ZC cnot_matrix[] =  {
+static  ZC cnot_matrix[] =  {
   ONE,  ZERO, ZERO, ZERO,
   ZERO, ONE,  ZERO, ZERO,
   ZERO, ZERO, ZERO, ONE,
   ZERO, ZERO, ONE,  ZERO}; 
-Matrix CNM_{4,4,4,4, pauli_x_matrix};
+Matrix CNM_{4,4,4,4, cnot_matrix};
 Gate CNot{"CNot", CNM_};
 
 	     
