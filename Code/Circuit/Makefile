@@ -9,7 +9,7 @@ HIP_COMPILER = /opt/rocm/bin/hipcc
 # ... rest of the file
 
 # Define standard compiler flags for C++14/C++17 compatibility
-HIP_FLAGS = -O2 --std=c++17 -I./
+HIP_FLAGS = -g -O1 --std=c++17 -I./
 
 INCLUDE_DIRS = -I./
 
@@ -44,10 +44,10 @@ $(EXECUTABLE): $(OBJECTS)
 
 # Pattern rule for building each object file from its corresponding source file
 # The -c flag tells the compiler to stop after compilation and not link
-%: %.cpp
+%.o: %.cpp
 	@echo "------------------------------------------------------"
 	@echo "Compiling $< to object file $@"
-	$(HIP_COMPILER) $(HIP_FLAGS)  $(INCLUDE_DIRS) -c $< -o $@
+	$(HIP_COMPILER) $(HIP_FLAGS)  $(INCLUDE_DIRS)  -c $< -o $@
 	@echo "------------------------------------------------------"
 
 # Clean target: removes compiled executables and object files

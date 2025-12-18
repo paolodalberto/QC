@@ -106,7 +106,10 @@ struct gate {
   ZC **d_C_ptrs =0;
 
   int index( unsigned int bit) {return 1<<bit;}
-  void set_index(int bit) { m =  1<<bit;}
+  void set_index(int bit) {
+    bit_number = bit;
+    m  =  1<<bit;
+  }
 
   
   // We allocate the pointers only  
@@ -145,28 +148,39 @@ struct gate {
    * We share the Input and the output
    * we share the matrix of the gate
    */
-  void init() {
+  void init(Matrix II, Matrix OO) {
+    I = II; 
+    O = OO; 
     // U is square and we allocate in the host and the device if it is
-    // already allocated nothing to do
+    // already allocated nothing to
     U.alloc(true, true);
 
     // remember we are doing O = I* U (where U is U^t)
     
     int B = I.m; // this is the state 2^n 
-    batch_count = B - ((1<<bit_number)+U.m);
-    
-    printf(" B %d batch_count %d \n", B, batch_count);
+    batch_count = B - ((1<<bit_number)*((bit_number==0)?0:1)
+		       +U.m);
+
+    printf("init\n");
+    U.print(true);
+ 
 
     m = 1<<bit_number;
     n = U.n; 
     k = U.m;
-
+    printf(" m %d n %d k %d \n", m, n, k);
+    printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
+    
     alloc(true,true);
     pre_gpu_gemm(m,n,k,
-		 h_A_ptrs,m,U.matrix,
-		 h_B_ptrs,U.m,I.matrix,
-		 h_C_ptrs,m,O.matrix,
+		 h_A_ptrs,m,  I.d_matrix,
+		 h_B_ptrs,U.m,U.d_matrix,
+		 h_C_ptrs,m,  O.d_matrix,
 		 batch_count);
+   
+    CHECK_HIP_ERROR(hipMemcpy(d_A_ptrs, h_A_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
+    CHECK_HIP_ERROR(hipMemcpy(d_B_ptrs, h_B_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
+    CHECK_HIP_ERROR(hipMemcpy(d_C_ptrs, h_C_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
     
   }
   
@@ -178,8 +192,15 @@ struct gate {
     std::cout << "<<<<<< Gate " <<  name << "\n"; 
 
   }
+
   
   void step(rocblas_handle handle) {
+
+    Matrix Z{4,1,4,1};
+    Z.alloc(true,false);
+    printf("######   Step \n");
+    U.print();
+    printf(" m %d n %d k %d bc %d \n", m, n, k,batch_count);
     
     const rocblas_stride strideA = m*n;
     const rocblas_stride strideB = k*n;
@@ -188,8 +209,22 @@ struct gate {
     const size_t total_elements_B = strideB * batch_count;
     const size_t total_elements_C = strideC * batch_count;
     
-    
+    I.print(true);
+    U.print(true);
+    Z.print(true);
+      
+    cpu_zgemm_batched_b(
+		      m, n, k, alpha, 
+		      I.matrix, strideA,
+		      U.matrix, strideB,
+		      beta,
+		      Z.matrix, strideC,
+		      batch_count);
 
+    printf("Z cpu \n");
+    Z.print(true);
+
+    
     gpu_zgemm_batched(
 	handle,
 	m, n, k, alpha, 
@@ -198,7 +233,10 @@ struct gate {
 	beta,
 	d_C_ptrs, strideC,
 	batch_count
-   );
+		      );
+    
+    printf("######   Step \n \n");
+
       
   }
 };
@@ -210,7 +248,7 @@ typedef struct gate Gate;
 
 struct schedule {
   Matrix &I;  // Input state 
-  Matrix &O;  // Output state
+  Matrix &O;  // Input state 
 
   /*
    * the depth of the circuit is the lenght of the outside vector the
@@ -220,27 +258,37 @@ struct schedule {
   
   // we move all the matrices into the 
   void init(){
+    printf("Circuit init \n");
     for (std::vector<Gate> &level  : schedule)
-      for (Gate h : level )
-	h.init();
-    
+      for (Gate &h : level ) { 
+	h.init(I,O);
+      }
+    printf("Circuit init \n\n");
   }
 
   
   void forward(rocblas_handle handle) {
+    printf("Circuit forward \n");
     for (std::vector<Gate> &level  : schedule)
-      for (Gate h : level )
+      for (Gate h : level ) { 
+	I.print(true);
+	I.writetodevice();
 	h.step(handle);
+	O.readfromdevice();
+	O.print(true);
+      }
+    printf("Circuit forward \n\n");
   }
   void print(bool  t=false)  {
     int l =0;
-    printf("Circuit \n");
+    printf("BEGIN Circuit %zu \n", schedule.size());
+    I.print(true);
     for (std::vector<Gate> &level  : schedule) {
-      printf("Level %d \n", l++);
-      for (Gate h : level )
+      printf("Level %d < %zu \n", l++, level.size());
+      for (Gate &h : level ) 
 	h.print(t);
     }
-    printf("Circuit \n");
+    printf("END Circuit \n");
   }
 };
 

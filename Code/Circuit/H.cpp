@@ -94,24 +94,29 @@ void cpu_zgemm_batched_M(
 
 extern Gate CNot;
 extern const Gate Hadamard;
-
+ 
 
 int main(int argc, char* argv[]) {
    // Method 1: Using atoi (C-style, simpler but less robust)
   int mydevice  = (argc>1)? std::atoi(argv[1]):0;
   int result =  set_device(mydevice);
-  int M = 2;
+  int M = 4;
   
   printf(" device: %d ;  State Bits %d \n", mydevice, M);
   
   rocblas_handle handle;
   CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
-
+ 
 
   Matrix Input = {M,1,M,1};
   Input.alloc(true,true);
-
-  CNot.print(true);
+  Matrix Output = {M,1,M,1};
+  Output.alloc(true,true);
+ 
+  Input.bra_zero();
+  Input.print(true);
+  Input.writetodevice();
+  CNot.print(true); 
 
   // building teh circuit like we belong
   Gate H0 = Hadamard; H0.set_index(0);
@@ -121,18 +126,19 @@ int main(int argc, char* argv[]) {
   std::vector<Gate> layer1{H0,H1};
   std::vector<Gate> layer2{CN};
   
-  std::vector<std::vector<Gate>> schedule{layer1, layer2};
+  std::vector<std::vector<Gate>> schedule{layer1, layer2}; 
   
-  Circuit Bell{Input, Input, schedule};
+  
+  Circuit Bell{Input, Output, schedule};
 
   Bell.print(true);
   
   Bell.init();
-  Bell.print(true);
 
-
+  Input.print(true);
   Bell.forward(handle);
-
+  Input.readfromdevice();
+  Input.print(true); 
   
   for (std::vector<Gate> &level  : schedule)
     for (Gate h : level )

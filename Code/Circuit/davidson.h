@@ -172,6 +172,14 @@ struct matrix {
   void zero() {
     for (int i = 0; i < m * n; ++i) matrix[i] = static_cast<Entry>(0);
   };
+  void bra_zero() {
+    for (int i = 0; i < m * n; i+=2) matrix[i] = ALPHA;
+  };
+  void bra_one() {
+    int i=0;
+    for (i = 1; i < m * n-1; i+=2) matrix[i] = ALPHA;
+    matrix[i] = ALPHA;
+  };
   int ind(int i, int j, bool t=false)    {
     if (t)
       return i*n +j;

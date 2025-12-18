@@ -241,10 +241,11 @@ int main() {
     ZC **h_C_ptrs = (ZC**)malloc(batchCount * sizeof(ZC*));
 
     // Populate the host pointer arrays
-    pre_gpu_gemm(M,N,K,h_A_ptrs,ldA,d_A_single,
-		      h_B_ptrs,ldB,d_B_base,
-		      h_C_ptrs,ldC,d_C_base,
-		      batchCount);
+    pre_gpu_gemm(M,N,K,
+		 h_A_ptrs,ldA,d_A_single,
+		 h_B_ptrs,ldB,d_B_base,
+		 h_C_ptrs,ldC,d_C_base,
+		 batchCount);
     
     // 8. Allocate Device Memory for the Pointer Arrays (The GPU needs its own copy of the pointers)
     ZC **d_A_ptrs, **d_B_ptrs, **d_C_ptrs;
