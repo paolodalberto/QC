@@ -79,7 +79,7 @@ void cpu_zgemm_batched_M(
      Matrix &C,
      int batchCount) {
   
-  cpu_zgemm_batched_b(
+  cpu_zgemm_batched(
 	   A.m, B.m, A.n, alpha, 
 	   A.matrix, A.m, // I 
 	   B.matrix, B.m, // G^t
@@ -109,21 +109,22 @@ int main(int argc, char* argv[]) {
  
 
   Matrix Input = {M,1,M,1};
-  Input.alloc(true,true);
+  Input.alloc(true,false);
   Matrix Output = {M,1,M,1};
-  Output.alloc(true,true);
- 
-  Input.bra_zero();
+  Output.alloc(true,false);
+  
+  Input.zero();
+  Input.matrix[0] = ALPHA;
   Input.print(true);
-  Input.writetodevice();
-  CNot.print(true); 
+  // Input.writetodevice();
+
 
   // building teh circuit like we belong
   Gate H0 = Hadamard; H0.set_index(0);
-  Gate H1 = Hadamard; H0.set_index(1);
+  Gate H1 = Hadamard; H1.set_index(1);
   Gate CN = CNot;     CN.set_index(0);
   
-  std::vector<Gate> layer1{H0,H1};
+  std::vector<Gate> layer1{H1};
   std::vector<Gate> layer2{CN};
   
   std::vector<std::vector<Gate>> schedule{layer1, layer2}; 

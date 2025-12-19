@@ -34,7 +34,7 @@ typedef rocblas_double_complex ZC;
 #define CHECK_ROCBLAS(func) {					\
     rocblas_status s = func;					\
     if (s != rocblas_status_success) {				\
-      printf("rocBLAS error at %s:%d\n", __FILE__, __LINE__);	\
+      printf("rocBLAS error %d at %s:%d\n", s, __FILE__, __LINE__);	\
       exit(EXIT_FAILURE);					\
     }								\
   }
@@ -56,16 +56,24 @@ void cpu_zgemm_batched(int M, int N, int K, ZC alpha,
   size_t matrix_elements_B = K * N;
   size_t matrix_elements_C = M * N;
 
-
+  printf(" A %zu B %zu C %zu \n",
+	 matrix_elements_A,matrix_elements_B,matrix_elements_C);
+  
+  std::cout << alpha << " &  " << beta << "\n";
   for (int p = 0; p < batchCount; ++p) {
+    printf(" Batch %d \n", p);
       for (int m = 0; m < M; ++m) {
 	for (int n = 0; n < N; ++n) {
 	  ZC sum = ZC{0.0, 0.0};
 	  for (int k = 0; k < K; ++k) {
 	    // Note: h_A_data accesses the single A matrix for all batches now
 	    ZC a = A[m + k * ldA]; 
-	    ZC b = B[p * matrix_elements_B + k + n * ldB];
+	    ZC b = B[p * matrix_elements_B +
+		     ((N==1)?(k):(k*ldB+n))
+		     ];
+	    
 	    sum = sum +a*b;
+	    std::cout << a << " * " <<b <<" = " << sum << "\n";
 	  }
 	  C[p * matrix_elements_C + m + n * ldC] = sum +  C[p * matrix_elements_C + m + n * ldC]*beta;
 	}
@@ -129,6 +137,31 @@ void pre_gpu_gemm(
     
     // B and C pointers point to the start of their respective matrix locations within the contiguous blocks
     B[i] = d_B + i * matrix_elements_B;
+    C[i] = d_C + i * matrix_elements_C;
+  }
+
+}
+
+void pre_gpu_gemm_B(
+	 int M, int N, int K, 
+	 ZC** A, rocblas_stride ldA, ZC *d_A,
+	 ZC** B, rocblas_stride ldB, ZC *d_B,
+	 ZC** C, rocblas_stride ldC, ZC *d_C,
+	 int batchCount
+		  ) {
+
+  // Calculate matrix sizes in elements
+  size_t matrix_elements_A = M * K;
+  size_t matrix_elements_B = K * N;
+  size_t matrix_elements_C = M * N;
+
+  // Populate the host pointer arrays
+  for (int i = 0; i < batchCount; ++i) {
+    // !!! KEY STEP: Every pointer in A array points to the single d_A_single buffer !!!
+    B[i] = d_B; 
+    
+    // B and C pointers point to the start of their respective matrix locations within the contiguous blocks
+    A[i] = d_A + i * matrix_elements_A;
     C[i] = d_C + i * matrix_elements_C;
   }
 

@@ -1,13 +1,13 @@
 
 # Define the C++ compiler (CXX is a standard Make variable)
-CXX = hipcc
+CXX = /opt/rocm/bin/hipcc
 
 # Define the HIP compiler provided by ROCm
-HIP_COMPILER = hipcc
+HIP_COMPILER = /opt/rocm/bin/hipcc
 # ... rest of the file
 
 # Define standard compiler flags for C++14/C++17 compatibility
-HIP_FLAGS = --std=c++17
+HIP_FLAGS = -O2 --std=c++17
 
 # Define linker flags to include rocBLAS and rocSOLVER libraries
 # The -l prefix is standard for linking libraries

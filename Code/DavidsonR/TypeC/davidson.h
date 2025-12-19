@@ -9,7 +9,9 @@
  *  TYPE_OPERAND 0 double complex
  */ 
 
+#ifndef TYPE_OPERAND 
 #define TYPE_OPERAND 3
+#endif
 
 #include <iostream>
 #include <vector>

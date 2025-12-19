@@ -8,8 +8,7 @@
  *
  */ 
 
-extern
-void cpu_zgemm_batched_b(
+extern void cpu_zgemm_batched(
      int M, int N, int K, ZC alpha, 
      ZC* A, rocblas_stride ldA,
      ZC* B, rocblas_stride ldB,
@@ -23,6 +22,18 @@ void cpu_zgemm_batched_b(
 
 extern 
 void pre_gpu_gemm(
+     int M, int N, int K, 
+     ZC** A, rocblas_stride ldA, ZC *d_A,
+     ZC** B, rocblas_stride ldB, ZC *d_B,
+     ZC** C, rocblas_stride ldC, ZC *d_C,
+     int batchCount
+		  );
+/***
+ * For batched computation we need to prepare the pointers
+ */
+
+extern 
+void pre_gpu_gemm_B(
      int M, int N, int K, 
      ZC** A, rocblas_stride ldA, ZC *d_A,
      ZC** B, rocblas_stride ldB, ZC *d_B,
@@ -148,41 +159,12 @@ struct gate {
    * We share the Input and the output
    * we share the matrix of the gate
    */
-  void init(Matrix II, Matrix OO) {
-    I = II; 
-    O = OO; 
-    // U is square and we allocate in the host and the device if it is
-    // already allocated nothing to
-    U.alloc(true, true);
+  void init(Matrix II, Matrix OO);
+  void step(rocblas_handle handle,
+	    Matrix &I, Matrix &O, int count =0);
 
-    // remember we are doing O = I* U (where U is U^t)
-    
-    int B = I.m; // this is the state 2^n 
-    batch_count = B - ((1<<bit_number)*((bit_number==0)?0:1)
-		       +U.m);
 
-    printf("init\n");
-    U.print(true);
- 
 
-    m = 1<<bit_number;
-    n = U.n; 
-    k = U.m;
-    printf(" m %d n %d k %d \n", m, n, k);
-    printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
-    
-    alloc(true,true);
-    pre_gpu_gemm(m,n,k,
-		 h_A_ptrs,m,  I.d_matrix,
-		 h_B_ptrs,U.m,U.d_matrix,
-		 h_C_ptrs,m,  O.d_matrix,
-		 batch_count);
-   
-    CHECK_HIP_ERROR(hipMemcpy(d_A_ptrs, h_A_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_B_ptrs, h_B_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_C_ptrs, h_C_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    
-  }
   
   void print(bool t=false) {
     std::cout << ">>>>>> Gate " <<  name << "\n"; 
@@ -194,51 +176,7 @@ struct gate {
   }
 
   
-  void step(rocblas_handle handle) {
 
-    Matrix Z{4,1,4,1};
-    Z.alloc(true,false);
-    printf("######   Step \n");
-    U.print();
-    printf(" m %d n %d k %d bc %d \n", m, n, k,batch_count);
-    
-    const rocblas_stride strideA = m*n;
-    const rocblas_stride strideB = k*n;
-    const rocblas_stride strideC = n * n;
-    const size_t total_elements_A = strideA * batch_count;
-    const size_t total_elements_B = strideB * batch_count;
-    const size_t total_elements_C = strideC * batch_count;
-    
-    I.print(true);
-    U.print(true);
-    Z.print(true);
-      
-    cpu_zgemm_batched_b(
-		      m, n, k, alpha, 
-		      I.matrix, strideA,
-		      U.matrix, strideB,
-		      beta,
-		      Z.matrix, strideC,
-		      batch_count);
-
-    printf("Z cpu \n");
-    Z.print(true);
-
-    
-    gpu_zgemm_batched(
-	handle,
-	m, n, k, alpha, 
-	d_A_ptrs, strideA,
-	d_B_ptrs, strideB,
-	beta,
-	d_C_ptrs, strideC,
-	batch_count
-		      );
-    
-    printf("######   Step \n \n");
-
-      
-  }
 };
 
 // When you see a Gate is a struct     
@@ -254,42 +192,12 @@ struct schedule {
    * the depth of the circuit is the lenght of the outside vector the
    * inner vector is the vertical collection of gates
    */
-  std::vector<std::vector<Gate>> schedule; 
+  std::vector<std::vector<Gate>> &schedule; 
   
   // we move all the matrices into the 
-  void init(){
-    printf("Circuit init \n");
-    for (std::vector<Gate> &level  : schedule)
-      for (Gate &h : level ) { 
-	h.init(I,O);
-      }
-    printf("Circuit init \n\n");
-  }
-
-  
-  void forward(rocblas_handle handle) {
-    printf("Circuit forward \n");
-    for (std::vector<Gate> &level  : schedule)
-      for (Gate h : level ) { 
-	I.print(true);
-	I.writetodevice();
-	h.step(handle);
-	O.readfromdevice();
-	O.print(true);
-      }
-    printf("Circuit forward \n\n");
-  }
-  void print(bool  t=false)  {
-    int l =0;
-    printf("BEGIN Circuit %zu \n", schedule.size());
-    I.print(true);
-    for (std::vector<Gate> &level  : schedule) {
-      printf("Level %d < %zu \n", l++, level.size());
-      for (Gate &h : level ) 
-	h.print(t);
-    }
-    printf("END Circuit \n");
-  }
+  void init();
+  void forward(rocblas_handle handle);
+  void print(bool  t=false);
 };
 
 typedef struct schedule Circuit;
