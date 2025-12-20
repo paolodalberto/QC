@@ -95,6 +95,13 @@ static ZC EPS{ 1e-6, 1e-6};
 #define ORGQR  rocsolver_cungqr
 #endif
 
+// Index computations are are as important as the computation type, we
+// we just hide the type but also we make sure that when we change
+// system we can address more than 2G elements ... we are aiming to
+// have a state of size < 16GB .. 2^32 
+
+typedef int Index;
+
 
 #define CHECK_HIP_ERROR(call) {			\
     hipError_t err = call;						\
@@ -119,14 +126,15 @@ template <typename Entry>
 struct matrix {
 
   // struct as a class members are all public
-  int m;                       // rows
-  int n;                       // cols
-  int M;                       // Maximum rows LD
-  int N;                       // Maximum cols
+  Index m;                       // rows
+  Index n;                       // cols
+  Index M;                       // Maximum rows LD
+  Index N;                       // Maximum cols
   Entry *matrix = 0; // host  
   Entry *d_matrix =0;            // device
   bool gate = true;
-  int initialize_host_matrix(const Entry* initial_data) {
+  bool transpose= false; 
+  size_t initialize_host_matrix(const Entry* initial_data) {
     // Calculate total size needed
     size_t total_elements = m * n;
     size_t total_bytes = total_elements * sizeof(Entry);
@@ -167,34 +175,47 @@ struct matrix {
   }
   // functions 
   // Host-side matrix multiplication for verification (optional)
-  void (*gemm)(struct matrix &C, Entry beta, struct matrix &A, struct matrix &B, Entry alpha);
+  void gemm(struct matrix &C, Entry beta, struct matrix &A,
+	    struct matrix &B, Entry alpha, const int debug1=0) {
+    for (Index m = 0; m < C.m; ++m) 
+      for (Index n = 0; n < C.n; ++n) {
+	ZC sum = ZERO;
+
+	for (Index k = 0; k < A.n; ++k) { 
+	  sum = sum +A.matrix[A.ind(m,k)]*B.matrix[B.ind(k,n)];
+	  if (debug1) std::cout << A.matrix[A.ind(m,k)] << " * " << B.matrix[B.ind(k,n)]<<" = " << sum << "\n";
+	}
+	C.matrix[C.ind(m,n)] = alpha*sum +  C.matrix[C.ind(m,n)]*beta;
+	if (debug1) std::cout <<  " indx " << C.ind(m,n)  << "<- " <<  sum << "\n";
+      }
+  }
   void init() {
-    for (int i = 0; i < m * n; ++i) matrix[i] = static_cast<Entry>(i % 10);
+    for (Index i = 0; i < m * n; ++i) matrix[i] = static_cast<Entry>(i % 10);
   };
   void zero() {
-    for (int i = 0; i < m * n; ++i) matrix[i] = static_cast<Entry>(0);
+    for (Index i = 0; i < m * n; ++i) matrix[i] = static_cast<Entry>(0);
   };
   void bra_zero() {
     zero();
     matrix[0] = ALPHA;
   };
-  int ind(int i, int j, bool t=false)    {
-    if (t)
+  Index ind(Index i, Index j, bool t=false)    {
+    if (t || transpose )
       return i*n +j;
     else
       return i +m*j;
     
   }
   
-  int size() { return m*n; } 
+  size_t size() { return m*n; } 
   void print(bool t=false) {
-    int MM = (m>10)?10: m;
-    int NN = (n>10)?10: n;
-    printf("Column Major M,N = %d,%d \n", m,n);
+    Index MM = (m>10)?10: m;
+    Index NN = (n>10)?10: n;
+    std::cout << "Column Major M,N = "<< m << "," << n << "\n";
     if (t)
-	for (int i = 0; i < MM; ++i) {
-	  for (int j = 0; j < NN; ++j) 
-	    std::cout << matrix[ind(i,j)] << " " ;
+      for (Index i = 0; i < MM; ++i) {
+	for (Index j = 0; j < NN; ++j) 
+	  std::cout << matrix[ind(i,j)] << " " ;
 	printf("\n");
       }
   };

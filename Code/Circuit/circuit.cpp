@@ -37,38 +37,50 @@
 static int debug1= 0;
 
 
-// Helper function for host-side matrix multiplication verification (standard C++ implementation)
+
+/*
+ * Helper function for host-side batched strided matrix multiplication
+ * verification (standard C++ implementation), the layout is column
+ * major this is literally this computation (I_n (x) G (x) I_k) * S
+ */
 void cpu_zgemm_gate(
-     int M, int N, int K,  
+     Index M, Index N, Index K,  
      ZC* AR,            // square single matrix MxK stored in column major
      ZC* BR,            // vector  LB elements
-     ZC* CR, int LB,    // vector  LC = LB elements 
-     int batch) {
-
+     ZC* CR, Index LB,    // vector  LC = LB elements 
+     Index batch) {
   
-  // We split I into batch parts
-  ZC *A = AR;
-  ZC *B;
+  ZC *A = AR;   // there is only one 
+  ZC *B;        // we will stream B and C
   ZC *C;
 
-  unsigned int chunk = LB/batch; 
-  unsigned int LD    = chunk/M; 
+  // We split S -> B and C  into batch parts
+  Index chunk = LB/batch; 
+  Index LD    = chunk/M; // logical but very convenient
   
   if (N==1 or batch==1) LD=1;
 
   if (debug1) std::cout <<  "Chunk "<<  chunk << "LD " << LD << "\n";
   
-  for (int p = 0; p < batch; ++p) {
+  for (Index p = 0; p < batch; ++p) {
+    /* these are independent GEMM */
+
     B = BR+ p*chunk; // chunk = MxLD
     C = CR+ p*chunk;
     
-    //  C = U*B but B =  KxN stored row major 
+    //  C = U*B but B = KxN should be stored row major but it is no
     
-    for (int m = 0; m < M; ++m) {
-      for (int n = 0; n < N; ++n) {
+    for (Index m = 0; m < M; ++m) {
+      for (Index n = 0; n < N; ++n) {
 	ZC sum = ZERO;
-	for (int k = 0; k < K; ++k){ 
+	for (Index k = 0; k < K; ++k){ 
+
+	  // we go across rows for A in the inner loop and across B
+	  // technically correct but inefficient and this is not
+	  // somthing you can do easily calling BLAS
+	  
 	  sum = sum +A[m +k*M]*B[k*LD+n];
+
 	  if (debug1) std::cout <<  A[m +k*M]<< " * " << B[k*N+n]<<" = " << sum << "\n";
 	}
 	C[m*N+n] = sum;
@@ -79,26 +91,28 @@ void cpu_zgemm_gate(
   }
 }
 
-/// this is as above A * B but we transpose and we actually compute
-/// the B^t * A^t this is cleaner when we use column major and A = A^t
-/// (but we may just store the transpose) This is a computational
-/// trick because eventually this is a vector. We can not figure out
-/// the GPU computation.
-
+/*
+ * This is as above A * B but we transpose and we actually compute the
+ * B^t * A^t : this is cleaner when we use column major and A = A^t
+ * (but we may just store the transpose or transpose on the spot
+ * through an interface call).  This is a computational trick. We can
+ * now figure out the GPU computation (column major) 
+*/
 
 void cpu_zgemm_gate_t (
-     int M, int N, int K,  
-     ZC* AR,            // square single matrix MxK stored in column major
-     ZC* BR,            // vector  LB elements
-     ZC* CR, int LB,    // vector  LC = LB elements 
-     int batch) {
+     Index M, Index N, Index K,  
+     ZC* AR, // vector  LB elements            
+     ZC* BR, // square single matrix MxK stored in column major
+     
+     ZC* CR, Index LB,    // vector  LC = LB elements 
+     Index batch) {
 
-  
-  // We split I into batch parts
+  /* notice we still do C= A*B but we stream C and A */
+  ZC *B = BR;  /* this is the gate ... only one */
   ZC *A ;
-  ZC *B = BR;
   ZC *C;
 
+  // We split I into batch parts
   unsigned int chunk = LB/batch; 
   unsigned int LD    = chunk/M; 
   
@@ -109,13 +123,20 @@ void cpu_zgemm_gate_t (
   for (int p = 0; p < batch; ++p) {
     A = AR+ p*chunk; // chunk = MxLD
     C = CR+ p*chunk;
+
     
-    //  C = U*B but B =  KxN stored row major 
+    //  C = B*U but U = KxN stored column major and
+    //  logically/practically transpose
     
     for (int m = 0; m < M; ++m) {
       for (int n = 0; n < N; ++n) {
 	ZC sum = ZERO;
-	for (int k = 0; k < K; ++k){ 
+	for (int k = 0; k < K; ++k){
+
+	  /* the change is subtle but this is a classic GEMM and
+	     column major ! we can call BLAS and BLAS
+	   */ 
+
 	  sum = sum +A[m +k*LD]*B[k+n*N];
 	  if (debug1) std::cout <<  A[m +k*M]<< " * " << B[k*N+n]<<" = " << sum << "\n";
 	}
@@ -124,6 +145,36 @@ void cpu_zgemm_gate_t (
       }
     }
     
+  }
+}
+/*
+ * This is as above A * B but we transpose and we actually compute the
+ * B^t * A^t : this is cleaner when we use column major and A = A^t
+ * (but we may just store the transpose or transpose on the spot
+ * through an interface call).  This is a computational trick. We can 
+ * now figure out the GPU computation (column major) 
+*/
+
+void cpu_zgemm_matrix_gate_t ( 
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch) {
+
+  
+  Index LB = CR.M;
+  Index chunk = LB/batch; // each small GEMM will compute chunks 
+  Index LD    = chunk/BR.M; 
+  
+  for (int p = 0; p < batch; ++p) {
+    
+    Matrix A{LD,BR.M,LD,BR.M, AR.matrix+ p*chunk}; 
+    Matrix C{LD,BR.M,LD,BR.M, CR.matrix+ p*chunk}; 
+
+
+    C.gemm(C,ZERO,A,BR,ONE);
+
+
   }
 }
 
@@ -205,18 +256,31 @@ void gate::step(rocblas_handle handle,
   
   O.print(true);
 
-  Matrix Z{I.m,1,I.M,1};
-  Z.alloc(true,false);
+  if (0)  {
+    Matrix Z{I.m,1,I.M,1};
+    Z.alloc(true,false);
+    
+    // We Do O^t = I^t H^t  because we have column major this is more GPU friendly
+    cpu_zgemm_gate_t(n,m, k,
+		     I.matrix, 
+		     U.matrix,
+		     Z.matrix, I.m,
+		     batch_count);
+    
+    Z.print(true);
+    Z.free();
+  }
+  if (1)  {
+    Matrix Z{I.m,1,I.M,1};
+    Z.alloc(true,false);
+    U.transpose = true;
 
-  // We Do O^t = I^t H^t  because we have column major this is more GPU friendly
-  cpu_zgemm_gate_t(n,m, k,
-		   I.matrix, 
-		   U.matrix,
-		   Z.matrix, I.m,
-		   batch_count);
-  
-  Z.print(true);
-  Z.free();
+    cpu_zgemm_matrix_gate_t(I,U,Z,batch_count); 
+
+    U.transpose = false;
+    Z.print(true);
+    Z.free();
+  }
   if (0) 
     gpu_zgemm_batched(
 		      handle,

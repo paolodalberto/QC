@@ -1,21 +1,5 @@
 #pragma once 
 
-
-
-/**********
- * Reference computation in basic c++
- * using regular pointers
- *
- */ 
-
-extern void cpu_zgemm_batched(
-     int M, int N, int K, ZC alpha, 
-     ZC* A, rocblas_stride ldA,
-     ZC* B, rocblas_stride ldB,
-     ZC beta,
-     ZC* C, rocblas_stride ldC,
-     int batchCount
-			 );
 /***
  * For batched computation we need to prepare the pointers
  */
@@ -56,16 +40,10 @@ void gpu_zgemm_batched(
 
 
 
-
-
-
-
-
-
 /***************
- **  A circuit is a sequence of layers. This define the depth of the
- **  circuit. The layers is a sequence gates.  
-
+ **  A circuit is a sequence of layers. This defines the depth of the
+ **  circuit. The layers is a sequence/column gates.
+ **
  **  Each gate has the property that the order does not matter but
  **  they are NOT parallel.  Again take a look at the notes and the
  **  python implementation. There is an opportunity to fuse Gates to
@@ -73,38 +51,36 @@ void gpu_zgemm_batched(
  **  affect the "rows" of the computation and thus the interference in
  **  caches.
  **
- **
  ********/
 
 
 
 struct gate {
 
-  /* Every one deserves a unique name so if you are
-   using the same gate identified by a name we
-   can do this quite easily and we do not need to
-   have multiple copies .. there will be only one
-   gate but it will be applied to different bits
-   thus the computation will be different
+  /* Every one deserves a unique name so if you are using the same
+   *  gate identified by a name we can do this quite easily and we do
+   *  not need to have multiple copies .. there will be only one gate
+   *  but it will be applied to different bits thus the computation
+   *  will be different
   */
 
   std::string name;  
-  Matrix &U; // Gate matrix gxg      : shared and already transposed   
+  Matrix &U; // Gate matrix gxg : shared and already transposed   
   
 
-  int    bit_number=0; // the first bit where we apply the gate k
+  Index bit_number=0; // the first bit where we apply the gate k
                    
 
   Matrix I; // Input state : 2^n x 1: shared 
   Matrix O; // output state         : shared and this can be the input state  
 
-  int m=0; // index of there we apply the gate
-  int n=0; // kernel size and this is G kernel (mxk)
-  int k=0;
+  Index m=0; // index of there we apply the gate
+  Index n=0; // kernel size and this is G kernel (mxk)
+  Index k=0;
 
-  int batch_count =1;
-  ZC alpha = ALPHA;
-  ZC beta  = BETA; 
+  Index batch_count =1;
+  ZC &alpha = ALPHA;
+  ZC &beta  = BETA; 
 
   // host pointers the strided pointers for the computation in the host 
   ZC **h_A_ptrs =0 ;
@@ -116,8 +92,8 @@ struct gate {
   ZC **d_B_ptrs =0 ;
   ZC **d_C_ptrs =0;
 
-  int index( unsigned int bit) {return 1<<bit;}
-  void set_index(int bit) {
+  Index index( Index bit) {return 1<<bit;}
+  void set_index(Index bit) {
     bit_number = bit;
     m  =  1<<bit;
   }

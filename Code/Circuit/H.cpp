@@ -3,7 +3,7 @@
 
 /*********************************************************
  * The Idea is simple: The computation of a Gate G on a state S is
- * expressed by a a kronecker computation (x) as 
+ * expressed by a a kronecker computation (x) as
  *
  * (I_n (x) G (x) I_k) * S
  *
@@ -15,7 +15,7 @@
  * We showed this in the Python implementation and also we show that
  * this boils down to the computation of 2^n matrix multiplicaitons
  * (strided) G over the remainder state S[0... 2^(k+m)] as a matrix of
- * size 2^m x 2^k ... so far brilliant
+ * size 2^m x 2^k ... so far brilliant stored in row major
  *
  **************/
 
@@ -31,12 +31,12 @@
 
 // we define the computation double complex 
 
-#define TYPE_OPERAND 4 
+#define TYPE_OPERAND 4  // complex double  
 #include "davidson.h"  // definition of matrices 
 #include "circuit.h"   // definition of Gate and Circuit
 
 
-
+// One day we will run on GPUs (one+)
 int set_device(int id) {
   int deviceCount;
   CHECK_HIP_ERROR(hipGetDeviceCount(&deviceCount));
@@ -96,12 +96,12 @@ int main(int argc, char* argv[]) {
   // Input.writetodevice();
 
 
-  // building teh circuit like we belong
-  // Gate H0 = Hadamard; H0.set_index(0);
+  // building the circuit like we belong
+  Gate H0 = Hadamard; H0.set_index(0);
   Gate H1 = Hadamard; H1.set_index(1);
   Gate CN = CNot;     CN.set_index(0);
   
-  std::vector<Gate> layer1{H1};
+  std::vector<Gate> layer1{H0};
   std::vector<Gate> layer2{CN};
   
   std::vector<std::vector<Gate>> schedule{layer1, layer2}; 
