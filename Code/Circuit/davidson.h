@@ -143,7 +143,7 @@ struct matrix {
     return total_bytes;
   }
   void free() {
-    if (matrix and !gate)   { std::free(matrix); matrix =0; }
+    if (matrix and !gate)   { std::free(matrix);        matrix =0; }
     if (d_matrix) { CHECK_HIP_ERROR(hipFree(d_matrix)); d_matrix=0;}
   }
   void alloc(bool host , bool device  ) {
@@ -157,10 +157,12 @@ struct matrix {
     }
   }
   void readfromdevice() {
-         CHECK_HIP_ERROR(hipMemcpy(matrix , d_matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
+    if ( matrix!=0 and d_matrix!=0) 
+      CHECK_HIP_ERROR(hipMemcpy(matrix , d_matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
   }
   void writetodevice() {
-         CHECK_HIP_ERROR(hipMemcpy(d_matrix , matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
+    if ( matrix!=0 and d_matrix!=0) 
+      CHECK_HIP_ERROR(hipMemcpy(d_matrix , matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
 
   }
   // functions 

@@ -66,30 +66,6 @@ int set_device(int id) {
 }
 
 
-/*****
- * this is column major and thus we will need to compute O = I * G^t
- * but I will transpose directly G  ...
- ***/
-
-void cpu_zgemm_batched_M(
-     int M, int N, int K, ZC alpha, 
-     Matrix &A,
-     Matrix &B,  // B is the small one the gate one 
-     ZC beta,
-     Matrix &C,
-     int batchCount) {
-  
-  cpu_zgemm_batched(
-	   A.m, B.m, A.n, alpha, 
-	   A.matrix, A.m, // I 
-	   B.matrix, B.m, // G^t
-	   beta,
-	   C.matrix, C.m, // O
-	   batchCount
-		      );
-  
-}
-
 
 
 extern Gate CNot;
@@ -114,13 +90,14 @@ int main(int argc, char* argv[]) {
   Output.alloc(true,false);
   
   Input.zero();
-  Input.matrix[0] = ALPHA;
+  Input.matrix[0] = ONE;
+  //Input.matrix[2] = ONE/std::sqrt(2);
   Input.print(true);
   // Input.writetodevice();
 
 
   // building teh circuit like we belong
-  Gate H0 = Hadamard; H0.set_index(0);
+  // Gate H0 = Hadamard; H0.set_index(0);
   Gate H1 = Hadamard; H1.set_index(1);
   Gate CN = CNot;     CN.set_index(0);
   
@@ -133,13 +110,8 @@ int main(int argc, char* argv[]) {
   Circuit Bell{Input, Output, schedule};
 
   Bell.print(true);
-  
   Bell.init();
-
-  Input.print(true);
   Bell.forward(handle);
-  Input.readfromdevice();
-  Input.print(true); 
   
   for (std::vector<Gate> &level  : schedule)
     for (Gate h : level )

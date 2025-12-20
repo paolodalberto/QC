@@ -34,6 +34,103 @@
 #include "circuit.h"   // definition of Gate and Circuit
 
 
+static int debug1= 0;
+
+
+// Helper function for host-side matrix multiplication verification (standard C++ implementation)
+void cpu_zgemm_gate(
+     int M, int N, int K,  
+     ZC* AR,            // square single matrix MxK stored in column major
+     ZC* BR,            // vector  LB elements
+     ZC* CR, int LB,    // vector  LC = LB elements 
+     int batch) {
+
+  
+  // We split I into batch parts
+  ZC *A = AR;
+  ZC *B;
+  ZC *C;
+
+  unsigned int chunk = LB/batch; 
+  unsigned int LD    = chunk/M; 
+  
+  if (N==1 or batch==1) LD=1;
+
+  if (debug1) std::cout <<  "Chunk "<<  chunk << "LD " << LD << "\n";
+  
+  for (int p = 0; p < batch; ++p) {
+    B = BR+ p*chunk; // chunk = MxLD
+    C = CR+ p*chunk;
+    
+    //  C = U*B but B =  KxN stored row major 
+    
+    for (int m = 0; m < M; ++m) {
+      for (int n = 0; n < N; ++n) {
+	ZC sum = ZERO;
+	for (int k = 0; k < K; ++k){ 
+	  sum = sum +A[m +k*M]*B[k*LD+n];
+	  if (debug1) std::cout <<  A[m +k*M]<< " * " << B[k*N+n]<<" = " << sum << "\n";
+	}
+	C[m*N+n] = sum;
+	if (debug1) std::cout <<  " indx " <<  m*N+n << "<- " <<  sum << "\n";
+      }
+    }
+    
+  }
+}
+
+/// this is as above A * B but we transpose and we actually compute
+/// the B^t * A^t this is cleaner when we use column major and A = A^t
+/// (but we may just store the transpose) This is a computational
+/// trick because eventually this is a vector. We can not figure out
+/// the GPU computation.
+
+
+void cpu_zgemm_gate_t (
+     int M, int N, int K,  
+     ZC* AR,            // square single matrix MxK stored in column major
+     ZC* BR,            // vector  LB elements
+     ZC* CR, int LB,    // vector  LC = LB elements 
+     int batch) {
+
+  
+  // We split I into batch parts
+  ZC *A ;
+  ZC *B = BR;
+  ZC *C;
+
+  unsigned int chunk = LB/batch; 
+  unsigned int LD    = chunk/M; 
+  
+  if (N==1 or batch==1) LD=1;
+
+  if (debug1) std::cout <<  "Chunk "<<  chunk << "LD " << LD << "\n";
+  
+  for (int p = 0; p < batch; ++p) {
+    A = AR+ p*chunk; // chunk = MxLD
+    C = CR+ p*chunk;
+    
+    //  C = U*B but B =  KxN stored row major 
+    
+    for (int m = 0; m < M; ++m) {
+      for (int n = 0; n < N; ++n) {
+	ZC sum = ZERO;
+	for (int k = 0; k < K; ++k){ 
+	  sum = sum +A[m +k*LD]*B[k+n*N];
+	  if (debug1) std::cout <<  A[m +k*M]<< " * " << B[k*N+n]<<" = " << sum << "\n";
+	}
+	C[m+n*N] = sum;
+	if (debug1) std::cout <<  " indx " <<  m+n*N << "<- " <<  sum << "\n";
+      }
+    }
+    
+  }
+}
+
+
+
+
+
 
 void gate::init(Matrix I, Matrix O) {
   
@@ -50,7 +147,7 @@ void gate::init(Matrix I, Matrix O) {
   
   batch_count = std::max(1, batch_count);
   printf("init\n");
-  U.print(true);
+  if (debug1)  U.print(true);
   
   
   m = U.m;
@@ -81,35 +178,45 @@ void gate::init(Matrix I, Matrix O) {
 void gate::step(rocblas_handle handle,
 		Matrix &I, Matrix &O,
 		int count ) {
+
   
-  Matrix Z{4,1,4,1};
-  Z.alloc(true,false);
   printf("######   Step %d \n", count );
-  U.print();
-  printf(" m %d n %d k %d bc %d \n", m, n, k,batch_count);
+  if (debug1) U.print();
+  if (debug1) printf(" m %d n %d k %d bc %d \n", m, n, k,batch_count);
   
   const rocblas_stride strideA = m*k;
   const rocblas_stride strideB = k*n;
   const rocblas_stride strideC = m*n;
   
-  printf(" stridaA %ld strideB %ld strideC %ld \n",
-	 strideA,strideB, strideC);
+  if (debug1)  printf(" stridaA %ld strideB %ld strideC %ld \n",
+		      strideA,strideB, strideC);
   
-  U.print(true);
-  I.print(true);
-  O.print(true);
-  
-  cpu_zgemm_batched(
-		    m, n, k, alpha, 
-		    U.matrix, m,
-		    I.matrix, m,
-		    beta,
-		    O.matrix, m,
-		    batch_count);
+  if (debug1) U.print(true);
+  if (debug1) I.print(true);
+  if (debug1) O.print(true);
 
-  printf("Z cpu \n");
-  O.print(true);
+
+  // We Do O = H I reshaped   
+  cpu_zgemm_gate(m, n, k,
+		 U.matrix,
+		 I.matrix, 
+		 O.matrix, I.m,
+		 batch_count);
   
+  O.print(true);
+
+  Matrix Z{I.m,1,I.M,1};
+  Z.alloc(true,false);
+
+  // We Do O^t = I^t H^t  because we have column major this is more GPU friendly
+  cpu_zgemm_gate_t(n,m, k,
+		   I.matrix, 
+		   U.matrix,
+		   Z.matrix, I.m,
+		   batch_count);
+  
+  Z.print(true);
+  Z.free();
   if (0) 
     gpu_zgemm_batched(
 		      handle,
@@ -121,7 +228,7 @@ void gate::step(rocblas_handle handle,
 		      batch_count
 		      );
   
-  printf("######   Step %d \n \n",count);
+  if (debug1) printf("######   Step %d \n \n",count);
   
 }
 
@@ -142,22 +249,26 @@ void schedule::init(){
 void schedule::forward(rocblas_handle handle) {
   int count = 0;
   printf("Circuit forward \n");
+  I.print(true);
   
   int lvl =0 ;
-  for (std::vector<Gate> &level  : schedule)
+  for (std::vector<Gate> &level  : schedule) { 
+    
     
     for (Gate &h : level ) { 
       
-      I.print(true);
-      //I.writetodevice();
+
       h.step(handle,
 	     (lvl%2==0)?I:O,
 	     (lvl%2==0)?O:I,
 	     count++);
+
+      if (lvl%2==0) O.print(true);
+      else I.print(true);
+
       lvl ++;
-      //O.readfromdevice();
-      O.print(true);
     }
+  }
   printf("Circuit forward \n\n");
 }
 
@@ -239,8 +350,8 @@ const Gate Pauli_Z{"PauliZ", PZM_};
  */
 static  ZC cnot_matrix[] =  {
   ONE,  ZERO, ZERO, ZERO,
-  ZERO, ZERO, ZERO, ONE,
   ZERO, ONE,  ZERO, ZERO,
+  ZERO, ZERO, ZERO, ONE,
   ZERO, ZERO, ONE,  ZERO}; 
 Matrix CNM_{4,4,4,4, cnot_matrix};
 Gate CNot{"CNot", CNM_};
