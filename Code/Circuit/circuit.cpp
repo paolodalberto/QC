@@ -155,7 +155,7 @@ void cpu_zgemm_gate_t (
  * now figure out the GPU computation (column major) 
 */
 
-void cpu_zgemm_matrix_gate_t ( 
+void gate::cpu_zgemm_matrix_gate_t ( 
      Matrix &AR,   // vector  LB elements
      Matrix &BR,   // square single matrix MxM stored in column major
      Matrix &CR,   // vector  LC = LB elements 
@@ -166,7 +166,7 @@ void cpu_zgemm_matrix_gate_t (
   Index chunk = LB/batch; // each small GEMM will compute chunks 
   Index LD    = chunk/BR.M; 
   
-  for (int p = 0; p < batch; ++p) {
+  for (Index p = 0; p < batch; ++p) {
     
     Matrix A{LD,BR.M,LD,BR.M, AR.matrix+ p*chunk}; 
     Matrix C{LD,BR.M,LD,BR.M, CR.matrix+ p*chunk}; 
@@ -178,7 +178,87 @@ void cpu_zgemm_matrix_gate_t (
   }
 }
 
+void gate::pre_gpu_gemm_t(
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch) {
 
+  Index LB = CR.M;
+  Index chunk = LB/batch; // each small GEMM will compute chunks 
+  Index LD    = chunk/BR.M; 
+  
+
+  for (Index p = 0; p < batch; ++p) {
+    h_A_ptrs[p] = AR.d_matrix+ + p * chunk;
+    h_B_ptrs[p] = BR.d_matrix;
+    h_C_ptrs[p] = CR.d_matrix+ p * chunk;
+  }
+}
+
+void gate::gpu_zgemm_matrix_gate_t (     rocblas_handle handle,
+ 
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch) {
+
+  
+  Index LB = CR.M;
+  Index chunk = LB/batch; // each small GEMM will compute chunks 
+  Index LD    = chunk/BR.M;
+  AR.writetodevice();
+  BR.writetodevice();
+  CR.writetodevice();
+  
+  for (Index p = 0; p < batch; ++p) {
+    
+    Matrix A{LD,BR.M,LD,BR.M, AR.matrix+ p*chunk,AR.d_matrix+ p*chunk}; 
+    Matrix C{LD,BR.M,LD,BR.M, CR.matrix+ p*chunk,CR.d_matrix+ p*chunk}; 
+
+
+    C.gemm_gpu(C,ZERO,A,BR,ONE,handle);
+
+
+  }
+  CR.readfromdevice();
+  
+}
+
+/*
+void gpu_zgemm_matrix_gate_t_2 ( 
+     rocblas_handle handle,
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch ) {
+
+
+  Index LB = CR.M;
+  Index chunk = LB/batch; // each small GEMM will compute chunks 
+  Index LD    = chunk/BR.M; 
+
+  Index M = LD;
+  Index N = BR.N;
+  Index K = BR.M; 
+  CHECK_ROCBLAS_STATUS(
+      rocblas_zgemm_batched(
+	      handle, 
+	      rocblas_operation_none, rocblas_operation_none, // Transpose options (None means no transpose)
+	      M, N, K,
+	      &ONE,
+	      d_A_ptrs, M, // Pointer to array of const A pointers
+	      d_B_ptrs, K, // Pointer to array of const B pointers
+	      &ZERO,
+	      d_C_ptrs, N, // Pointer to array of C pointers
+	      batch
+			    )
+		);
+
+  
+}
+*/
+ 
 
 
 
@@ -189,7 +269,8 @@ void gate::init(Matrix I, Matrix O) {
   
   // already allocated nothing to
   U.alloc(true, true);
-  
+  U.writetodevice();
+
   // remember we are doing O = I* U (where U is U^t)
   
   int B = I.m; // this is the state 2^n 
@@ -207,13 +288,9 @@ void gate::init(Matrix I, Matrix O) {
   printf(" m %d n %d k %d \n", m, n, k);
   printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
   
-  if (0) { 
+  if (1) {
     alloc(true,true);
-    pre_gpu_gemm(m,n,k,
-		 h_A_ptrs,U.m,  U.d_matrix,
-		 h_B_ptrs,m,    I.d_matrix,
-		 h_C_ptrs,m,    O.d_matrix,
-		 batch_count);
+    gate::pre_gpu_gemm_t(I, U , O, batch_count);
     
     CHECK_HIP_ERROR(hipMemcpy(d_A_ptrs, h_A_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
     CHECK_HIP_ERROR(hipMemcpy(d_B_ptrs, h_B_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
@@ -242,19 +319,20 @@ void gate::step(rocblas_handle handle,
   if (debug1)  printf(" stridaA %ld strideB %ld strideC %ld \n",
 		      strideA,strideB, strideC);
   
-  if (debug1) U.print(true);
-  if (debug1) I.print(true);
+  U.print(true);
+  I.print(true);
   if (debug1) O.print(true);
 
-
-  // We Do O = H I reshaped   
-  cpu_zgemm_gate(m, n, k,
-		 U.matrix,
-		 I.matrix, 
-		 O.matrix, I.m,
-		 batch_count);
+  if (0) { 
+    // We Do O = H I reshaped   
+    cpu_zgemm_gate(m, n, k,
+		   U.matrix,
+		   I.matrix, 
+		   O.matrix, I.m,
+		   batch_count);
   
-  O.print(true);
+    O.print(true);
+  }
 
   if (0)  {
     Matrix Z{I.m,1,I.M,1};
@@ -265,33 +343,28 @@ void gate::step(rocblas_handle handle,
 		     I.matrix, 
 		     U.matrix,
 		     Z.matrix, I.m,
-		     batch_count);
+		     batch_count);   
     
     Z.print(true);
     Z.free();
   }
   if (1)  {
-    Matrix Z{I.m,1,I.M,1};
-    Z.alloc(true,false);
     U.transpose = true;
 
-    cpu_zgemm_matrix_gate_t(I,U,Z,batch_count); 
-
-    U.transpose = false;
+    cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
+    printf("CPU\n");
+    O.print(true);
+  }
+  if (1)  { 
+    Matrix Z{I.m,1,I.M,1};
+    Z.alloc(true,true);
+    I.writetodevice();
+    gpu_zgemm_matrix_gate_t(handle,I,U,Z,batch_count); 
+    Z.readfromdevice();
+    printf("GPU\n");
     Z.print(true);
     Z.free();
   }
-  if (0) 
-    gpu_zgemm_batched(
-		      handle,
-		      m, n, k, alpha, 
-		      d_A_ptrs, strideA,
-		      d_B_ptrs, strideB,
-		      beta,
-		      d_C_ptrs, strideC,
-		      batch_count
-		      );
-  
   if (debug1) printf("######   Step %d \n \n",count);
   
 }

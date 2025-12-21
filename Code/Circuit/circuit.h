@@ -139,7 +139,25 @@ struct gate {
   void step(rocblas_handle handle,
 	    Matrix &I, Matrix &O, int count =0);
 
+  void cpu_zgemm_matrix_gate_t ( 
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch);
 
+  void gpu_zgemm_matrix_gate_t (
+     rocblas_handle handle,
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch);
+
+
+ void pre_gpu_gemm_t(
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch);  
 
   
   void print(bool t=false) {

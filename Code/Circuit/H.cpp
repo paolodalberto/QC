@@ -85,9 +85,9 @@ int main(int argc, char* argv[]) {
  
 
   Matrix Input = {M,1,M,1};
-  Input.alloc(true,false);
+  Input.alloc(true,true);
   Matrix Output = {M,1,M,1};
-  Output.alloc(true,false);
+  Output.alloc(true,true);
   
   Input.zero();
   Input.matrix[0] = ONE;
@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
   Gate H1 = Hadamard; H1.set_index(1);
   Gate CN = CNot;     CN.set_index(0);
   
-  std::vector<Gate> layer1{H0};
+  std::vector<Gate> layer1{H1};
   std::vector<Gate> layer2{CN};
   
   std::vector<std::vector<Gate>> schedule{layer1, layer2}; 

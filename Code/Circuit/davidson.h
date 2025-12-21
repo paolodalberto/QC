@@ -45,6 +45,7 @@ static ZC BETA  = 0.0;
 static ZC ONE = 1.0;
 static ZC ZERO  = 0.0;
 #define GEMM  rocblas_sgemm
+#define GEAM  rocblas_sgeam
 #define SOLV  rocsolver_ssyev
 #define NORM_  rocblas_snrm2_strided_batched
 #define GEQRF rocsolver_sgeqrf 
@@ -59,6 +60,7 @@ static ZC BETA  = 0.0;
 static ZC ONE = 1.0;
 static ZC ZERO  = 0.0;
 #define GEMM  rocblas_dgemm
+#define GEAM  rocblas_dgeam
 #define SOLV  rocsolver_dsyev
 #define NORM_  rocblas_dnrm2_strided_batched
 #define GEQRF rocsolver_dgeqrf 
@@ -75,6 +77,8 @@ static ZC ZERO{0.0,0.0};
 static ZC EPS{ 1e-12, 1e-12};
 
 #define GEMM  rocblas_zgemm
+#define GEAM  rocblas_zgeam
+
 #define SOLV  rocsolver_zheev
 #define NORM_ rocblas_dznrm2_strided_batched
 #define GEQRF rocsolver_zgeqrf 
@@ -89,6 +93,7 @@ static ZC ONE{1.0,0.0};
 static ZC ZERO{0.0,0.0};
 static ZC EPS{ 1e-6, 1e-6};
 #define GEMM  rocblas_cgemm
+#define GEAM  rocblas_cgeam
 #define SOLV  rocsolver_cheev
 #define NORM_  rocblas_scnrm2_strided_batched
 #define GEQRF rocsolver_cgeqrf 
@@ -130,10 +135,11 @@ struct matrix {
   Index n;                       // cols
   Index M;                       // Maximum rows LD
   Index N;                       // Maximum cols
-  Entry *matrix = 0; // host  
+  Entry *matrix = 0;             // host  
   Entry *d_matrix =0;            // device
   bool gate = true;
-  bool transpose= false; 
+  bool transpose= false;
+  
   size_t initialize_host_matrix(const Entry* initial_data) {
     // Calculate total size needed
     size_t total_elements = m * n;
@@ -173,6 +179,7 @@ struct matrix {
       CHECK_HIP_ERROR(hipMemcpy(d_matrix , matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
 
   }
+  
   // functions 
   // Host-side matrix multiplication for verification (optional)
   void gemm(struct matrix &C, Entry beta, struct matrix &A,
@@ -189,6 +196,50 @@ struct matrix {
 	if (debug1) std::cout <<  " indx " << C.ind(m,n)  << "<- " <<  sum << "\n";
       }
   }
+  void geam(struct matrix &C, Entry beta, struct matrix &A,
+	    struct matrix &B, Entry alpha, const int debug1=0) {
+    for (Index m = 0; m < C.m; ++m) 
+      for (Index n = 0; n < C.n; ++n) {
+	ZC sum = ZERO;
+
+	for (Index k = 0; k < A.n; ++k) { 
+	  sum = sum +A.matrix[A.ind(m,k)] + B.matrix[B.ind(k,n)];
+	  if (debug1) std::cout << A.matrix[A.ind(m,k)] << " * " << B.matrix[B.ind(k,n)]<<" = " << sum << "\n";
+	}
+	C.matrix[C.ind(m,n)] = alpha*sum +  C.matrix[C.ind(m,n)]*beta;
+	if (debug1) std::cout <<  " indx " << C.ind(m,n)  << "<- " <<  sum << "\n";
+      }
+  }
+  void gemm_gpu(struct matrix &C, ZC beta, struct matrix &A, struct matrix &B, ZC alpha, rocblas_handle handle=0) {
+
+    // T = H * V
+    CHECK_ROCBLAS_STATUS(
+			 GEMM(handle, 
+			      rocblas_operation_none, rocblas_operation_none, 
+			      A.m, B.n, B.n,  // this is the problem size                                                 
+			      &alpha, 
+			      A.d_matrix, A.m, 
+			      B.d_matrix, B.m, 
+			      &beta, 
+			      C.d_matrix, C.m)); 
+    
+  }
+  void gemma_gpu(struct matrix &C, ZC beta, struct matrix &A, struct matrix &B, ZC alpha, rocblas_handle handle=0) {
+
+    // T = H * V
+    CHECK_ROCBLAS_STATUS(
+			 GEAM(handle, 
+			      rocblas_operation_none, rocblas_operation_none, 
+			      A.m, B.n, B.n,  // this is the problem size                                                 
+			      &alpha, 
+			      A.d_matrix, A.m, 
+			      B.d_matrix, B.m, 
+			      &beta, 
+			      C.d_matrix, C.m)); 
+    
+  }
+
+  
   void init() {
     for (Index i = 0; i < m * n; ++i) matrix[i] = static_cast<Entry>(i % 10);
   };
