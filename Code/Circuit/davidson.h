@@ -184,17 +184,25 @@ struct matrix {
   // Host-side matrix multiplication for verification (optional)
   void gemm(struct matrix &C, Entry beta, struct matrix &A,
 	    struct matrix &B, Entry alpha, const int debug1=0) {
+    struct matrix T{C.m, C.n, C.M,C.N};
+    T.alloc(true, false);
     for (Index m = 0; m < C.m; ++m) 
       for (Index n = 0; n < C.n; ++n) {
 	ZC sum = ZERO;
-
+	
 	for (Index k = 0; k < A.n; ++k) { 
 	  sum = sum +A.matrix[A.ind(m,k)]*B.matrix[B.ind(k,n)];
 	  if (debug1) std::cout << A.matrix[A.ind(m,k)] << " * " << B.matrix[B.ind(k,n)]<<" = " << sum << "\n";
 	}
-	C.matrix[C.ind(m,n)] = alpha*sum +  C.matrix[C.ind(m,n)]*beta;
+	T.matrix[T.ind(m,n)] = alpha*sum;
+	
 	if (debug1) std::cout <<  " indx " << C.ind(m,n)  << "<- " <<  sum << "\n";
       }
+
+    for (Index m = 0; m < C.m; ++m) 
+      for (Index n = 0; n < C.n; ++n) 
+	C.matrix[C.ind(m,n)] = T.matrix[T.ind(m,n)]  +  C.matrix[C.ind(m,n)]*beta;
+	
   }
   void geam(struct matrix &C, Entry beta, struct matrix &A,
 	    struct matrix &B, Entry alpha, const int debug1=0) {
@@ -212,10 +220,12 @@ struct matrix {
   }
   void gemm_gpu(struct matrix &C, ZC beta, struct matrix &A, struct matrix &B, ZC alpha, rocblas_handle handle=0) {
 
+    
     // T = H * V
     CHECK_ROCBLAS_STATUS(
 			 GEMM(handle, 
-			      rocblas_operation_none, rocblas_operation_none, 
+			      rocblas_operation_none,
+			      rocblas_operation_none , 
 			      A.m, B.n, B.n,  // this is the problem size                                                 
 			      &alpha, 
 			      A.d_matrix, A.m, 

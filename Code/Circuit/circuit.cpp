@@ -178,23 +178,6 @@ void gate::cpu_zgemm_matrix_gate_t (
   }
 }
 
-void gate::pre_gpu_gemm_t(
-     Matrix &AR,   // vector  LB elements
-     Matrix &BR,   // square single matrix MxM stored in column major
-     Matrix &CR,   // vector  LC = LB elements 
-     Index batch) {
-
-  Index LB = CR.M;
-  Index chunk = LB/batch; // each small GEMM will compute chunks 
-  Index LD    = chunk/BR.M; 
-  
-
-  for (Index p = 0; p < batch; ++p) {
-    h_A_ptrs[p] = AR.d_matrix+ + p * chunk;
-    h_B_ptrs[p] = BR.d_matrix;
-    h_C_ptrs[p] = CR.d_matrix+ p * chunk;
-  }
-}
 
 void gate::gpu_zgemm_matrix_gate_t (     rocblas_handle handle,
  
@@ -225,13 +208,41 @@ void gate::gpu_zgemm_matrix_gate_t (     rocblas_handle handle,
   
 }
 
-/*
-void gpu_zgemm_matrix_gate_t_2 ( 
+void gate::pre_gpu_gemm_t(
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch) {
+
+  Index LB = CR.M;
+  Index chunk = LB/batch; // each small GEMM will compute chunks 
+  Index LD    = chunk/BR.M; 
+
+  // We allocate pointers in the host and in the device 
+  alloc(true,true);
+
+  for (Index p = 0; p < batch; ++p) {
+    h_A_ptrs[p] = AR.d_matrix+ + p * chunk;
+    h_B_ptrs[p] = BR.d_matrix;
+    h_C_ptrs[p] = CR.d_matrix+ p * chunk;
+  }
+
+  CHECK_HIP_ERROR(hipMemcpy(d_A_ptrs, h_A_ptrs, batch * sizeof(ZC*), hipMemcpyHostToDevice));
+  CHECK_HIP_ERROR(hipMemcpy(d_B_ptrs, h_B_ptrs, batch * sizeof(ZC*), hipMemcpyHostToDevice));
+  CHECK_HIP_ERROR(hipMemcpy(d_C_ptrs, h_C_ptrs, batch * sizeof(ZC*), hipMemcpyHostToDevice));
+
+
+
+
+}
+
+void gate::gpu_zgemm_matrix_gate_t_2 ( 
      rocblas_handle handle,
      Matrix &AR,   // vector  LB elements
      Matrix &BR,   // square single matrix MxM stored in column major
      Matrix &CR,   // vector  LC = LB elements 
      Index batch ) {
+
 
 
   Index LB = CR.M;
@@ -244,33 +255,34 @@ void gpu_zgemm_matrix_gate_t_2 (
   CHECK_ROCBLAS_STATUS(
       rocblas_zgemm_batched(
 	      handle, 
-	      rocblas_operation_none, rocblas_operation_none, // Transpose options (None means no transpose)
+	      rocblas_operation_none, rocblas_operation_transpose, // Transpose options (None means no transpose)
 	      M, N, K,
 	      &ONE,
 	      d_A_ptrs, M, // Pointer to array of const A pointers
 	      d_B_ptrs, K, // Pointer to array of const B pointers
 	      &ZERO,
-	      d_C_ptrs, N, // Pointer to array of C pointers
+	      d_C_ptrs, M, // Pointer to array of C pointers
 	      batch
 			    )
 		);
 
   
 }
-*/
+
  
 
 
 
 
-void gate::init(Matrix I, Matrix O) {
-  
-  
+void gate::init(Matrix I, Matrix O, int comp) {
   
   // already allocated nothing to
   U.alloc(true, true);
   U.writetodevice();
-
+  U.transpose = true;
+  
+  if (gate::comp != comp) gate::comp=comp;
+  
   // remember we are doing O = I* U (where U is U^t)
   
   int B = I.m; // this is the state 2^n 
@@ -288,15 +300,6 @@ void gate::init(Matrix I, Matrix O) {
   printf(" m %d n %d k %d \n", m, n, k);
   printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
   
-  if (1) {
-    alloc(true,true);
-    gate::pre_gpu_gemm_t(I, U , O, batch_count);
-    
-    CHECK_HIP_ERROR(hipMemcpy(d_A_ptrs, h_A_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_B_ptrs, h_B_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    CHECK_HIP_ERROR(hipMemcpy(d_C_ptrs, h_C_ptrs, batch_count * sizeof(ZC*), hipMemcpyHostToDevice));
-    
-  }
 }
 
 
@@ -320,7 +323,6 @@ void gate::step(rocblas_handle handle,
 		      strideA,strideB, strideC);
   
   U.print(true);
-  I.print(true);
   if (debug1) O.print(true);
 
   if (0) { 
@@ -348,22 +350,30 @@ void gate::step(rocblas_handle handle,
     Z.print(true);
     Z.free();
   }
-  if (1)  {
-    U.transpose = true;
-
+  if (comp==0)  {
+   
     cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
     printf("CPU\n");
     O.print(true);
   }
-  if (1)  { 
-    Matrix Z{I.m,1,I.M,1};
-    Z.alloc(true,true);
-    I.writetodevice();
-    gpu_zgemm_matrix_gate_t(handle,I,U,Z,batch_count); 
-    Z.readfromdevice();
-    printf("GPU\n");
-    Z.print(true);
-    Z.free();
+  if (comp==1)  { 
+    //I.writetodevice();
+    gpu_zgemm_matrix_gate_t(handle,I,U,O,batch_count); 
+    //O.readfromdevice();
+    printf("GPU 1 \n");
+    //O.print(true);
+  }
+  if (comp==2)  {
+    if (false and batch_count==1) 
+      gpu_zgemm_matrix_gate_t(handle,I,U,O,batch_count); 
+    else {
+      //    I.writetodevice();
+      pre_gpu_gemm_t(I, U , O, batch_count);
+      gpu_zgemm_matrix_gate_t_2(handle,I,U,O,batch_count); 
+      //O.readfromdevice();
+      printf("GPU 2 \n");
+    //O.print(true);
+    }
   }
   if (debug1) printf("######   Step %d \n \n",count);
   
@@ -373,11 +383,11 @@ void gate::step(rocblas_handle handle,
 
 
   // we move all the matrices into the 
-void schedule::init(){
+void schedule::init(int comp){
     printf("Circuit init \n");
     for (std::vector<Gate> &level  : schedule)
       for (Gate &h : level ) { 
-	h.init(I,O);
+	h.init(I,O,comp);
       }
     printf("Circuit init \n\n");
   }
@@ -387,7 +397,7 @@ void schedule::forward(rocblas_handle handle) {
   int count = 0;
   printf("Circuit forward \n");
   I.print(true);
-  
+  I.writetodevice();
   int lvl =0 ;
   for (std::vector<Gate> &level  : schedule) { 
     
@@ -400,12 +410,40 @@ void schedule::forward(rocblas_handle handle) {
 	     (lvl%2==0)?O:I,
 	     count++);
 
-      if (lvl%2==0) O.print(true);
-      else I.print(true);
+      
+      if (lvl%2==0) {
+	if (h.comp>0) O.readfromdevice();
+	O.print(true);
+      }
+      else {
+	if (h.comp>0) I.readfromdevice();
+	I.print(true);
+      }
+      lvl ++;
+    }
+  }
+  printf("Circuit forward \n\n");
+}
+
+void schedule::forward_inplace(rocblas_handle handle) {
+  int count = 0;
+  printf("Circuit forward inplace \n");
+  I.print(true);
+  
+  int lvl =0 ;
+  for (std::vector<Gate> &level  : schedule) { 
+    
+    
+    for (Gate &h : level ) { 
+      
+
+      h.step(handle,I,O,count++);
+
 
       lvl ++;
     }
   }
+  I.print(true);
   printf("Circuit forward \n\n");
 }
 

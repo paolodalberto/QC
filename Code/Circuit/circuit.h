@@ -92,6 +92,8 @@ struct gate {
   ZC **d_B_ptrs =0 ;
   ZC **d_C_ptrs =0;
 
+  int comp = 0 ; // 0 CPU 1 GPU
+  
   Index index( Index bit) {return 1<<bit;}
   void set_index(Index bit) {
     bit_number = bit;
@@ -135,7 +137,7 @@ struct gate {
    * We share the Input and the output
    * we share the matrix of the gate
    */
-  void init(Matrix II, Matrix OO);
+  void init(Matrix II, Matrix OO, int comp=0);
   void step(rocblas_handle handle,
 	    Matrix &I, Matrix &O, int count =0);
 
@@ -145,7 +147,16 @@ struct gate {
      Matrix &CR,   // vector  LC = LB elements 
      Index batch);
 
+  // multiple call to gpu GEMM
   void gpu_zgemm_matrix_gate_t (
+     rocblas_handle handle,
+     Matrix &AR,   // vector  LB elements
+     Matrix &BR,   // square single matrix MxM stored in column major
+     Matrix &CR,   // vector  LC = LB elements 
+     Index batch);
+
+  // Multiple addresses and single call 
+  void gpu_zgemm_matrix_gate_t_2 (
      rocblas_handle handle,
      Matrix &AR,   // vector  LB elements
      Matrix &BR,   // square single matrix MxM stored in column major
@@ -189,8 +200,9 @@ struct schedule {
   std::vector<std::vector<Gate>> &schedule; 
   
   // we move all the matrices into the 
-  void init();
+  void init(int comp=0);
   void forward(rocblas_handle handle);
+  void forward_inplace(rocblas_handle handle);
   void print(bool  t=false);
 };
 

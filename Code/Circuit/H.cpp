@@ -75,6 +75,7 @@ extern const Gate Hadamard;
 int main(int argc, char* argv[]) {
    // Method 1: Using atoi (C-style, simpler but less robust)
   int mydevice  = (argc>1)? std::atoi(argv[1]):0;
+  int cpu       = (argc>2)? std::atoi(argv[2]):0;
   int result =  set_device(mydevice);
   int M = 4;
   
@@ -86,6 +87,7 @@ int main(int argc, char* argv[]) {
 
   Matrix Input = {M,1,M,1};
   Input.alloc(true,true);
+  /*  let's try in place */
   Matrix Output = {M,1,M,1};
   Output.alloc(true,true);
   
@@ -101,16 +103,16 @@ int main(int argc, char* argv[]) {
   Gate H1 = Hadamard; H1.set_index(1);
   Gate CN = CNot;     CN.set_index(0);
   
-  std::vector<Gate> layer1{H1};
+  std::vector<Gate> layer1{H0};
   std::vector<Gate> layer2{CN};
   
   std::vector<std::vector<Gate>> schedule{layer1, layer2}; 
   
   
-  Circuit Bell{Input, Output, schedule};
+  Circuit Bell{Input, Input, schedule};
 
   Bell.print(true);
-  Bell.init();
+  Bell.init(cpu);
   Bell.forward(handle);
   
   for (std::vector<Gate> &level  : schedule)
