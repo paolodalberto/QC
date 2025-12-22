@@ -32,7 +32,7 @@
 // we define the computation double complex 
 
 #define TYPE_OPERAND 4  // complex double  
-#include "davidson.h"  // definition of matrices 
+#include "matrices.h"  // definition of matrices 
 #include "circuit.h"   // definition of Gate and Circuit
 
 

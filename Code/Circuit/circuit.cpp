@@ -30,7 +30,7 @@
 // we define the computation double complex 
 
 #define TYPE_OPERAND 4 
-#include "davidson.h"  // definition of matrices 
+#include "matrices.h"  // definition of matrices 
 #include "circuit.h"   // definition of Gate and Circuit
 
 
@@ -325,56 +325,30 @@ void gate::step(rocblas_handle handle,
   U.print(true);
   if (debug1) O.print(true);
 
-  if (0) { 
-    // We Do O = H I reshaped   
-    cpu_zgemm_gate(m, n, k,
-		   U.matrix,
-		   I.matrix, 
-		   O.matrix, I.m,
-		   batch_count);
-  
-    O.print(true);
-  }
-
-  if (0)  {
-    Matrix Z{I.m,1,I.M,1};
-    Z.alloc(true,false);
-    
-    // We Do O^t = I^t H^t  because we have column major this is more GPU friendly
-    cpu_zgemm_gate_t(n,m, k,
-		     I.matrix, 
-		     U.matrix,
-		     Z.matrix, I.m,
-		     batch_count);   
-    
-    Z.print(true);
-    Z.free();
-  }
-  if (comp==0)  {
-   
+  switch (comp) {
+  case 0:
     cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
     printf("CPU\n");
-    O.print(true);
-  }
-  if (comp==1)  { 
-    //I.writetodevice();
+    break;
+  case 1:
+
     gpu_zgemm_matrix_gate_t(handle,I,U,O,batch_count); 
-    //O.readfromdevice();
     printf("GPU 1 \n");
-    //O.print(true);
+    break;
+
+  case 2:
+
+    pre_gpu_gemm_t(I, U , O, batch_count);
+    gpu_zgemm_matrix_gate_t_2(handle,I,U,O,batch_count); 
+    
+    printf("GPU 2 \n");
+    break;
+  default :
+    cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
+    printf("CPU\n");
+  
   }
-  if (comp==2)  {
-    if (false and batch_count==1) 
-      gpu_zgemm_matrix_gate_t(handle,I,U,O,batch_count); 
-    else {
-      //    I.writetodevice();
-      pre_gpu_gemm_t(I, U , O, batch_count);
-      gpu_zgemm_matrix_gate_t_2(handle,I,U,O,batch_count); 
-      //O.readfromdevice();
-      printf("GPU 2 \n");
-    //O.print(true);
-    }
-  }
+
   if (debug1) printf("######   Step %d \n \n",count);
   
 }
@@ -456,7 +430,7 @@ void schedule::print(bool  t)  {
     for (std::vector<Gate> &level  : schedule) {
       printf("Level %d < %zu \n", l++, level.size());
       for (Gate &h : level ) 
-	h.print(t);
+	h.print(t); 
     }
     printf("END Circuit \n");
   }

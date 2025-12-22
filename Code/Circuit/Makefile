@@ -21,7 +21,7 @@ LIBRARIES = -lrocblas
 
 
 # Source file
-SOURCES = H.cpp H1.cpp circuit.cpp 
+SOURCES = H.cpp  circuit.cpp 
 
 # Generate a list of required object files from the source files (e.g., davidson.o, sortarg.o, ...)
 OBJECTS = $(SOURCES:.cpp=.o)
