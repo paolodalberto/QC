@@ -299,6 +299,9 @@ void gate::init(Matrix I, Matrix O, int comp) {
   k = U.n; 
   printf(" m %d n %d k %d \n", m, n, k);
   printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
+
+  // if I and O are in place this can be done once 
+  pre_gpu_gemm_t(I, U , O, batch_count);
   
 }
 
@@ -338,7 +341,7 @@ void gate::step(rocblas_handle handle,
 
   case 2:
 
-    pre_gpu_gemm_t(I, U , O, batch_count);
+    //   pre_gpu_gemm_t(I, U , O, batch_count);
     gpu_zgemm_matrix_gate_t_2(handle,I,U,O,batch_count); 
     
     printf("GPU 2 \n");
@@ -371,27 +374,28 @@ void schedule::forward(rocblas_handle handle) {
   int count = 0;
   printf("Circuit forward \n");
   I.print(true);
-  I.writetodevice();
+
   int lvl =0 ;
   for (std::vector<Gate> &level  : schedule) { 
     
     
     for (Gate &h : level ) { 
       
-
+      // We need to ping pong I and O 
       h.step(handle,
 	     (lvl%2==0)?I:O,
 	     (lvl%2==0)?O:I,
 	     count++);
 
-      
-      if (lvl%2==0) {
-	if (h.comp>0) O.readfromdevice();
-	O.print(true);
-      }
-      else {
-	if (h.comp>0) I.readfromdevice();
-	I.print(true);
+      if (true || debug1) { 
+	if (lvl%2==0) {
+	  if (h.comp>0) O.readfromdevice();
+	  O.print(true);
+	}
+	else {
+	  if (h.comp>0) I.readfromdevice();
+	  I.print(true);
+	}
       }
       lvl ++;
     }
@@ -402,22 +406,23 @@ void schedule::forward(rocblas_handle handle) {
 void schedule::forward_inplace(rocblas_handle handle) {
   int count = 0;
   printf("Circuit forward inplace \n");
-  I.print(true);
   
-  int lvl =0 ;
   for (std::vector<Gate> &level  : schedule) { 
     
     
     for (Gate &h : level ) { 
       
 
-      h.step(handle,I,O,count++);
-
-
-      lvl ++;
+      h.step(handle,I,I,count++);
+      if (h.comp>0) {
+	I.readfromdevice();
+      }
+      I.print(true);
+      
     }
   }
-  I.print(true);
+  
+
   printf("Circuit forward \n\n");
 }
 

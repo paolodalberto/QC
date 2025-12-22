@@ -1,43 +1,5 @@
 #pragma once 
 
-/***
- * For batched computation we need to prepare the pointers
- */
-
-extern 
-void pre_gpu_gemm(
-     int M, int N, int K, 
-     ZC** A, rocblas_stride ldA, ZC *d_A,
-     ZC** B, rocblas_stride ldB, ZC *d_B,
-     ZC** C, rocblas_stride ldC, ZC *d_C,
-     int batchCount
-		  );
-/***
- * For batched computation we need to prepare the pointers
- */
-
-extern 
-void pre_gpu_gemm_B(
-     int M, int N, int K, 
-     ZC** A, rocblas_stride ldA, ZC *d_A,
-     ZC** B, rocblas_stride ldB, ZC *d_B,
-     ZC** C, rocblas_stride ldC, ZC *d_C,
-     int batchCount
-		  );
-/***
- * After the pre you can run the execute 
- */
-extern 
-void gpu_zgemm_batched(
-     rocblas_handle handle,
-     int M, int N, int K, ZC alpha, 
-     ZC** A, rocblas_stride ldA,
-     ZC** B, rocblas_stride ldB,
-     ZC beta,
-     ZC** C, rocblas_stride ldC,
-     int batchCount
-		       );
-
 
 
 /***************

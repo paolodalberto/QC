@@ -88,14 +88,14 @@ int main(int argc, char* argv[]) {
   Matrix Input = {M,1,M,1};
   Input.alloc(true,true);
   /*  let's try in place */
-  Matrix Output = {M,1,M,1};
-  Output.alloc(true,true);
-  
+  /* Matrix Output = {M,1,M,1};
+     Output.alloc(true,true);
+  */
   Input.zero();
   Input.matrix[0] = ONE;
   //Input.matrix[2] = ONE/std::sqrt(2);
   Input.print(true);
-  // Input.writetodevice();
+  Input.writetodevice();
 
 
   // building the circuit like we belong
@@ -113,7 +113,11 @@ int main(int argc, char* argv[]) {
 
   Bell.print(true);
   Bell.init(cpu);
-  Bell.forward(handle);
+
+  Input.print(true);
+  Bell.forward_inplace(handle);
+  if (cpu>0) Input.readfromdevice();
+  Input.print(true);
   
   for (std::vector<Gate> &level  : schedule)
     for (Gate h : level )

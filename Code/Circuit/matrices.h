@@ -211,20 +211,14 @@ struct matrix {
     for (Index m = 0; m < C.m; ++m) 
       for (Index n = 0; n < C.n; ++n) 
 	C.matrix[C.ind(m,n)] = T.matrix[T.ind(m,n)]  +  C.matrix[C.ind(m,n)]*beta;
+    T.free();
     
   }
   void geam(struct matrix &C, Entry beta, struct matrix &A,
 	    struct matrix &B, Entry alpha, const int debug1=0) {
     for (Index m = 0; m < C.m; ++m) 
       for (Index n = 0; n < C.n; ++n) {
-	ZC sum = ZERO;
-	
-	for (Index k = 0; k < A.n; ++k) { 
-	  sum = sum +A.matrix[A.ind(m,k)] + B.matrix[B.ind(k,n)];
-	  if (debug1) std::cout << A.matrix[A.ind(m,k)] << " * " << B.matrix[B.ind(k,n)]<<" = " << sum << "\n";
-	}
-	C.matrix[C.ind(m,n)] = alpha*sum +  C.matrix[C.ind(m,n)]*beta;
-	if (debug1) std::cout <<  " indx " << C.ind(m,n)  << "<- " <<  sum << "\n";
+	C.matrix[C.ind(m,n)] = alpha*(A.matrix[A.ind(m,n)] + B.matrix[B.ind(m,n)]) +  C.matrix[C.ind(m,n)]*beta;
       }
   }
   
