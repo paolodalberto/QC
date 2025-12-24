@@ -19,7 +19,8 @@
 #include <hip/hip_runtime.h>
 #include <rocblas/rocblas.h>
 #include <rocsolver/rocsolver.h>
-#include <cstdlib> 
+#include <cstdlib>
+#include <cblas.h>
 
 /// Miscellaneous errors
 
@@ -46,6 +47,7 @@ static ZC ONE = 1.0;
 static ZC ZERO  = 0.0;
 #define GEMM  rocblas_sgemm
 #define GEAM  rocblas_sgeam
+#define GEMMC  cblas_sgemm
 #define SOLV  rocsolver_ssyev
 #define NORM_  rocblas_snrm2_strided_batched
 #define GEQRF rocsolver_sgeqrf 
@@ -60,6 +62,7 @@ static ZC BETA  = 0.0;
 static ZC ONE = 1.0;
 static ZC ZERO  = 0.0;
 #define GEMM  rocblas_dgemm
+#define GEMMC  cblas_dgemm
 #define GEAM  rocblas_dgeam
 #define SOLV  rocsolver_dsyev
 #define NORM_  rocblas_dnrm2_strided_batched
@@ -77,6 +80,8 @@ static ZC ZERO{0.0,0.0};
 static ZC EPS{ 1e-12, 1e-12};
 
 #define GEMM  rocblas_zgemm
+#define GEMMC  cblas_zgemm
+
 #define GEAM  rocblas_zgeam
 
 #define SOLV  rocsolver_zheev
@@ -93,6 +98,8 @@ static ZC ONE{1.0,0.0};
 static ZC ZERO{0.0,0.0};
 static ZC EPS{ 1e-6, 1e-6};
 #define GEMM  rocblas_cgemm
+#define GEMMC  cblas_cgemm
+
 #define GEAM  rocblas_cgeam
 #define SOLV  rocsolver_cheev
 #define NORM_  rocblas_scnrm2_strided_batched
@@ -220,6 +227,26 @@ struct matrix {
       for (Index n = 0; n < C.n; ++n) {
 	C.matrix[C.ind(m,n)] = alpha*(A.matrix[A.ind(m,n)] + B.matrix[B.ind(m,n)]) +  C.matrix[C.ind(m,n)]*beta;
       }
+  }
+  void gemm_openblas(struct matrix &C, Entry beta, struct matrix &A,
+	    struct matrix &B, Entry alpha, const int debug1=0){
+    struct matrix T{C.m, C.n, C.M,C.N};
+    T.alloc(true, false);
+    GEMMC(CblasColMajor, // Use Column Major
+	  CblasNoTrans,  // Op(A) = A
+	  CblasNoTrans,  // Op(B) = B
+	  A.m, B.n, B.n,  // this is the problem size                                                 
+	  &alpha, 
+	  A.matrix, A.m, 
+	  B.matrix, B.m, 
+	  &beta, 
+	  T.matrix, T.m);
+    
+    for (Index m = 0; m < C.m; ++m) 
+      for (Index n = 0; n < C.n; ++n) 
+	C.matrix[C.ind(m,n)] = T.matrix[T.ind(m,n)]  +  C.matrix[C.ind(m,n)]*beta;
+    T.free();
+    
   }
   
   void gemm_gpu(struct matrix &C, ZC beta, struct matrix &A, struct matrix &B, ZC alpha, rocblas_handle handle=0)  {

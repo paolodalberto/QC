@@ -77,7 +77,7 @@ int main(int argc, char* argv[]) {
   int mydevice  = (argc>1)? std::atoi(argv[1]):0;
   int cpu       = (argc>2)? std::atoi(argv[2]):0;
   int result =  set_device(mydevice);
-  int M = 4;
+  int M = 1<<10;
   
   printf(" device: %d ;  State Bits %d \n", mydevice, M);
   
@@ -99,14 +99,17 @@ int main(int argc, char* argv[]) {
 
 
   // building the circuit like we belong
-  Gate H0 = Hadamard; H0.set_index(0);
-  Gate H1 = Hadamard; H1.set_index(1);
-  Gate CN = CNot;     CN.set_index(0);
-  
-  std::vector<Gate> layer1{H0};
+  std::vector<Gate> Hs;
+  int i=0;
+  for (int i=0; i<M; i++)  { 
+    Gate H0 = Hadamard;
+    H0.set_index(i);
+    Hs.push_back(H0);
+  }
+  Gate CN =CNot; CN.index(7); 
   std::vector<Gate> layer2{CN};
   
-  std::vector<std::vector<Gate>> schedule{layer1, layer2}; 
+  std::vector<std::vector<Gate>> schedule{Hs, layer2}; 
   
   
   Circuit Bell{Input, Input, schedule};

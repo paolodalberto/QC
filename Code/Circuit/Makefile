@@ -16,7 +16,7 @@ INCLUDE_DIRS = -I./
 # Define linker flags to include rocBLAS and rocSOLVER libraries
 # The -l prefix is standard for linking libraries
 # Assuming libraries are in the default ROCm path (/opt/rocm/lib) which hipcc knows
-LIBRARIES = -lrocblas 
+LIBRARIES = -lrocblas -lopenblas -lpthread -lm
 
 
 

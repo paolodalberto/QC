@@ -172,7 +172,7 @@ void gate::cpu_zgemm_matrix_gate_t (
     Matrix C{LD,BR.M,LD,BR.M, CR.matrix+ p*chunk}; 
 
 
-    C.gemm(C,ZERO,A,BR,ONE);
+    C.gemm_openblas(C,ZERO,A,BR,ONE);
 
 
   }
@@ -451,6 +451,11 @@ void schedule::print(bool  t)  {
 
 // Construction of gates
 static NORM_TYPE SQ2 = 1.0/std::sqrt(2);
+
+const double PI_8_COS = std::cos(M_PI / 4.0); // For T-gate
+const double PI_8_SIN = std::sin(M_PI / 4.0);
+
+
 /** 1/sqrt(2) | 1  1 |
  *            | 1 -1 | 
  * Stored in column major 
@@ -512,4 +517,36 @@ Gate CNot{"CNot", CNM_};
 
 	     
 
+static ZC toffoli_matrix[] {
+    ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column ONE
+    ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column 2
+    ZERO, ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, // Column 3
+    ZERO, ZERO, ZERO, ONE, ZERO, ZERO, ZERO, ZERO, // Column 4
+    ZERO, ZERO, ZERO, ZERO, ONE, ZERO, ZERO, ZERO, // Column 5
+    ZERO, ZERO, ZERO, ZERO, ZERO, ONE, ZERO, ZERO, // Column 6
+    ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ONE, // Column 7
+    ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ONE, ZERO  // Column 8
+};
+Matrix CCNM_{8,8,8,8, toffoli_matrix};
+Gate CCNot{"CCNot", CNM_};
 
+static ZC fredkin_matrix[]{
+    ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column ZERO: |ZEROZEROZERO>
+    ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column ONE: |ZEROZEROONE>
+    ZERO, ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, // Column 2: |ZEROONEZERO>
+    ZERO, ZERO, ZERO, ONE, ZERO, ZERO, ZERO, ZERO, // Column 3: |ZEROONEONE>
+    ZERO, ZERO, ZERO, ZERO, ONE, ZERO, ZERO, ZERO, // Column 4: |ONEZEROZERO>
+    ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ONE, ZERO, // Column 5: |ONEZEROONE> -> Swaps to |ONEONEZERO>
+    ZERO, ZERO, ZERO, ZERO, ZERO, ONE, ZERO, ZERO, // Column 6: |ONEONEZERO> -> Swaps to |ONEZEROONE>
+    ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ONE  // Column 7: |ONEONEONE>
+};
+Matrix FM_{8,8,8,8,  fredkin_matrix};
+Gate Fredkin{"fredkin",FM_} ;
+
+// T-Gate (pi/8 gate)
+static ZC t_matrix[] = {
+  ONE, ZERO,                // Column 0
+  ZERO, ZC{PI_8_COS, PI_8_SIN}  // Column 1
+};
+Matrix TM_{8,8,8,8,  t_matrix};
+Gate T{"T",TM_} ;
