@@ -56,10 +56,10 @@ struct gate {
 
   int comp = 0 ; // 0 CPU 1 GPU
   
-  Index index( Index bit) {return 1<<bit;}
+  Index index( Index bit) {return (bit==0)?0:(1<<bit);}
   void set_index(Index bit) {
     bit_number = bit;
-    m  =  1<<bit;
+    m  =   (bit==0)?0:(1<<bit);
   }
 
   

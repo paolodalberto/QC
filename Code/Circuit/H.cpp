@@ -27,6 +27,7 @@
 #include <hip/hip_complex.h>
 #include <cmath>
 #include <cstdlib>
+#include <chrono>
 
 
 // we define the computation double complex 
@@ -76,14 +77,16 @@ int main(int argc, char* argv[]) {
    // Method 1: Using atoi (C-style, simpler but less robust)
   int mydevice  = (argc>1)? std::atoi(argv[1]):0;
   int cpu       = (argc>2)? std::atoi(argv[2]):0;
+  int bit       = (argc>3)? std::atoi(argv[3]):10;
+  int times       = (argc>3)? std::atoi(argv[4]):10;
   int result =  set_device(mydevice);
-  int M = 1<<10;
   
-  printf(" device: %d ;  State Bits %d \n", mydevice, M);
+  int M = 1<< bit;
+  printf(" device: %d ;  State Bits %d Space %d \n", mydevice, bit, M);
   
   rocblas_handle handle;
   CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
- 
+
 
   Matrix Input = {M,1,M,1};
   Input.alloc(true,true);
@@ -95,21 +98,31 @@ int main(int argc, char* argv[]) {
   Input.matrix[0] = ONE;
   //Input.matrix[2] = ONE/std::sqrt(2);
   Input.print(true);
-  Input.writetodevice();
+
+
+
+
+
+
+  if (cpu>0) Input.writetodevice();
 
 
   // building the circuit like we belong
   std::vector<Gate> Hs;
-  int i=0;
-  for (int i=0; i<M; i++)  { 
+  for (int i=0; i<bit; i++)  { 
     Gate H0 = Hadamard;
     H0.set_index(i);
     Hs.push_back(H0);
   }
-  Gate CN =CNot; CN.index(7); 
-  std::vector<Gate> layer2{CN};
-  
-  std::vector<std::vector<Gate>> schedule{Hs, layer2}; 
+  std::vector<Gate> Cs;
+  for (int i=0; i<bit; i+=2)  { 
+    Gate CN = CNot;
+    CN.set_index(i);
+    Cs.push_back(CN);
+  }
+
+
+  std::vector<std::vector<Gate>> schedule{Hs, Cs}; 
   
   
   Circuit Bell{Input, Input, schedule};
@@ -118,7 +131,25 @@ int main(int argc, char* argv[]) {
   Bell.init(cpu);
 
   Input.print(true);
-  Bell.forward_inplace(handle);
+  printf(" Computing \n");
+  auto start = std::chrono::high_resolution_clock::now();
+
+  for (int i=0; i<times;i++ ) { 
+    printf("Iteration %d \n", i);
+    //if (cpu>0) Input.writetodevice();
+    Bell.forward_inplace(handle);
+    //if (cpu>0) Input.readfromdevice();
+  }
+
+
+  auto end = std::chrono::high_resolution_clock::now();
+  
+  // 3. Calculate duration (e.g., in microseconds)
+  auto duration = std::chrono::duration_cast<std::chrono::microseconds>((end - start)/times);
+  
+  std::cout << "Time: " << duration.count() << " microseconds" << std::endl;
+
+
   if (cpu>0) Input.readfromdevice();
   Input.print(true);
   

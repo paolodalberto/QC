@@ -251,7 +251,8 @@ void gate::gpu_zgemm_matrix_gate_t_2 (
 
   Index M = LD;
   Index N = BR.N;
-  Index K = BR.M; 
+  Index K = BR.M;
+  
   CHECK_ROCBLAS_STATUS(
       rocblas_zgemm_batched(
 	      handle, 
@@ -290,15 +291,15 @@ void gate::init(Matrix I, Matrix O, int comp) {
 		     +U.m);
   
   batch_count = std::max(1, batch_count);
-  printf("init\n");
+  if (debug1) printf("init\n");
   if (debug1)  U.print(true);
   
   
   m = U.m;
   n = 1<<bit_number;;
   k = U.n; 
-  printf(" m %d n %d k %d \n", m, n, k);
-  printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
+  if (debug1) printf(" m %d n %d k %d \n", m, n, k);
+  if (debug1) printf(" B %d batch_count %d bit_number %d \n", B, batch_count, bit_number);
 
   // if I and O are in place this can be done once 
   pre_gpu_gemm_t(I, U , O, batch_count);
@@ -314,7 +315,7 @@ void gate::step(rocblas_handle handle,
 		int count ) {
 
   
-  printf("######   Step %d \n", count );
+  if (debug1) printf("######   Step %d \n", count );
   if (debug1) U.print();
   if (debug1) printf(" m %d n %d k %d bc %d \n", m, n, k,batch_count);
   
@@ -325,30 +326,30 @@ void gate::step(rocblas_handle handle,
   if (debug1)  printf(" stridaA %ld strideB %ld strideC %ld \n",
 		      strideA,strideB, strideC);
   
-  U.print(true);
+  if (debug1) U.print(true);
   if (debug1) O.print(true);
 
   switch (comp) {
   case 0:
     cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
-    printf("CPU\n");
+    if (debug1) printf("CPU\n");
     break;
   case 1:
 
     gpu_zgemm_matrix_gate_t(handle,I,U,O,batch_count); 
-    printf("GPU 1 \n");
+    if (debug1) printf("GPU 1 \n");
     break;
-
+ 
   case 2:
 
     //   pre_gpu_gemm_t(I, U , O, batch_count);
     gpu_zgemm_matrix_gate_t_2(handle,I,U,O,batch_count); 
     
-    printf("GPU 2 \n");
+    if (debug1)  printf("GPU 2 \n");
     break;
   default :
     cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
-    printf("CPU\n");
+    if (debug1) printf("CPU\n");
   
   }
 
@@ -361,18 +362,18 @@ void gate::step(rocblas_handle handle,
 
   // we move all the matrices into the 
 void schedule::init(int comp){
-    printf("Circuit init \n");
+    if (debug1) printf("Circuit init \n");
     for (std::vector<Gate> &level  : schedule)
       for (Gate &h : level ) { 
 	h.init(I,O,comp);
       }
-    printf("Circuit init \n\n");
+    if (debug1) printf("Circuit init \n\n");
   }
 
   
 void schedule::forward(rocblas_handle handle) {
   int count = 0;
-  printf("Circuit forward \n");
+  if (debug1) printf("Circuit forward \n");
   I.print(true);
 
   int lvl =0 ;
@@ -387,7 +388,7 @@ void schedule::forward(rocblas_handle handle) {
 	     (lvl%2==0)?O:I,
 	     count++);
 
-      if (true || debug1) { 
+      if (debug1) { 
 	if (lvl%2==0) {
 	  if (h.comp>0) O.readfromdevice();
 	  O.print(true);
@@ -400,30 +401,31 @@ void schedule::forward(rocblas_handle handle) {
       lvl ++;
     }
   }
-  printf("Circuit forward \n\n");
+  if (debug1) printf("Circuit forward \n\n");
 }
 
 void schedule::forward_inplace(rocblas_handle handle) {
   int count = 0;
-  printf("Circuit forward inplace \n");
+  if (debug1)  printf("Circuit forward inplace \n");
   
   for (std::vector<Gate> &level  : schedule) { 
     
     
     for (Gate &h : level ) { 
       
-
       h.step(handle,I,I,count++);
-      if (h.comp>0) {
-	I.readfromdevice();
+
+      if (debug1) { 
+	if (h.comp>0) {
+	  I.readfromdevice();
+	}
+	I.print(true);
       }
-      I.print(true);
-      
     }
   }
   
 
-  printf("Circuit forward \n\n");
+  if (debug1)  printf("Circuit forward \n\n");
 }
 
 
@@ -434,8 +436,16 @@ void schedule::print(bool  t)  {
     I.print(true);
     for (std::vector<Gate> &level  : schedule) {
       printf("Level %d < %zu \n", l++, level.size());
-      for (Gate &h : level ) 
-	h.print(t); 
+      int c =0;
+      for (Gate &h : level )  { 
+	h.print(t);
+	c++;
+	if (c>5) {
+	  printf("Level continue  \n");
+	  break;
+	}
+      }
+      
     }
     printf("END Circuit \n");
   }
@@ -550,3 +560,6 @@ static ZC t_matrix[] = {
 };
 Matrix TM_{8,8,8,8,  t_matrix};
 Gate T{"T",TM_} ;
+
+
+
