@@ -53,6 +53,7 @@ static ZC ZERO  = 0.0;
 #define GEQRF rocsolver_sgeqrf 
 #define ORGQR rocsolver_sorgqr 
 static ZC EPS  = 1e-10;
+#define GEMM_BATCHED rocblas_sgemm_batched
 
 #elif (TYPE_OPERAND==2)
 typedef double NORM_TYPE;
@@ -69,6 +70,8 @@ static ZC ZERO  = 0.0;
 #define GEQRF rocsolver_dgeqrf 
 #define ORGQR rocsolver_dorgqr 
 static ZC EPS  = 1e-12;
+#define GEMM_BATCHED rocblas_dgemm_batched
+
 
 #elif  (TYPE_OPERAND==4)
 typedef double NORM_TYPE;
@@ -88,6 +91,7 @@ static ZC EPS{ 1e-12, 1e-12};
 #define NORM_ rocblas_dznrm2_strided_batched
 #define GEQRF rocsolver_zgeqrf 
 #define ORGQR rocsolver_zungqr
+#define GEMM_BATCHED rocblas_zgemm_batched
 
 #elif  (TYPE_OPERAND==3)
 typedef float NORM_TYPE;
@@ -105,6 +109,7 @@ static ZC EPS{ 1e-6, 1e-6};
 #define NORM_  rocblas_scnrm2_strided_batched
 #define GEQRF rocsolver_cgeqrf 
 #define ORGQR  rocsolver_cungqr
+#define GEMM_BATCHED rocblas_cgemm_batched
 #endif
 
 // Index computations are are as important as the computation type, we

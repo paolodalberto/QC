@@ -77,8 +77,8 @@ int main(int argc, char* argv[]) {
    // Method 1: Using atoi (C-style, simpler but less robust)
   int mydevice  = (argc>1)? std::atoi(argv[1]):0;
   int cpu       = (argc>2)? std::atoi(argv[2]):0;
-  int bit       = (argc>3)? std::atoi(argv[3]):10;
-  int times       = (argc>3)? std::atoi(argv[4]):10;
+  int bit       = (argc>3)? std::atoi(argv[3]):2;
+  int times       = (argc>3)? std::atoi(argv[4]):1;
   int result =  set_device(mydevice);
   
   int M = 1<< bit;
@@ -126,13 +126,13 @@ int main(int argc, char* argv[]) {
   
   
   Circuit Bell{Input, Input, schedule};
-
-  Bell.print(true);
   Bell.init(cpu);
+  Bell.print(true);
+  
 
   Input.print(true);
   printf(" Computing \n");
-  auto start = std::chrono::high_resolution_clock::now();
+  auto start_ = std::chrono::high_resolution_clock::now();
 
   for (int i=0; i<times;i++ ) { 
     printf("Iteration %d \n", i);
@@ -142,12 +142,12 @@ int main(int argc, char* argv[]) {
   }
 
 
-  auto end = std::chrono::high_resolution_clock::now();
+  auto end_ = std::chrono::high_resolution_clock::now();
   
   // 3. Calculate duration (e.g., in microseconds)
-  auto duration = std::chrono::duration_cast<std::chrono::microseconds>((end - start)/times);
+  auto duration_ = std::chrono::duration_cast<std::chrono::microseconds>((end_ - start_)/times);
   
-  std::cout << "Time: " << duration.count() << " microseconds" << std::endl;
+  std::cout << "Time: " << duration_.count() << " microseconds" << std::endl;
 
 
   if (cpu>0) Input.readfromdevice();

@@ -55,6 +55,7 @@ struct gate {
   ZC **d_C_ptrs =0;
 
   int comp = 0 ; // 0 CPU 1 GPU
+  int calls=0;
   
   Index index( Index bit) {return (bit==0)?0:(1<<bit);}
   void set_index(Index bit) {
@@ -135,9 +136,13 @@ struct gate {
   
   void print(bool t=false) {
     std::cout << ">>>>>> Gate " <<  name << "\n"; 
-    printf("Bit %d \n", m);
+    printf("Calls %d \n", calls);
+    printf("Bit %d \n", bit_number);
     printf("Batch %d \n",batch_count );
     U.print(t);
+    if (batch_count==42) {
+      printf("WHATTA \n");
+      printf("%f",1.0/0.0); } 
     std::cout << "<<<<<< Gate " <<  name << "\n"; 
 
   }

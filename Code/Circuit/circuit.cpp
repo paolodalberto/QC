@@ -35,6 +35,7 @@
 
 
 static int debug1= 0;
+static int debug2= 0;
 
 
 
@@ -190,9 +191,9 @@ void gate::gpu_zgemm_matrix_gate_t (     rocblas_handle handle,
   Index LB = CR.M;
   Index chunk = LB/batch; // each small GEMM will compute chunks 
   Index LD    = chunk/BR.M;
-  AR.writetodevice();
-  BR.writetodevice();
-  CR.writetodevice();
+  //AR.writetodevice();
+  //BR.writetodevice();
+  //CR.writetodevice();
   
   for (Index p = 0; p < batch; ++p) {
     
@@ -204,7 +205,7 @@ void gate::gpu_zgemm_matrix_gate_t (     rocblas_handle handle,
 
 
   }
-  CR.readfromdevice();
+  //  CR.readfromdevice();
   
 }
 
@@ -254,7 +255,7 @@ void gate::gpu_zgemm_matrix_gate_t_2 (
   Index K = BR.M;
   
   CHECK_ROCBLAS_STATUS(
-      rocblas_zgemm_batched(
+     GEMM_BATCHED(
 	      handle, 
 	      rocblas_operation_none, rocblas_operation_transpose, // Transpose options (None means no transpose)
 	      M, N, K,
@@ -286,11 +287,15 @@ void gate::init(Matrix I, Matrix O, int comp) {
   
   // remember we are doing O = I* U (where U is U^t)
   
-  int B = I.m; // this is the state 2^n 
-  batch_count = B - ((1<<bit_number)*((bit_number==0)?0:1)
-		     +U.m);
+  int B = I.m; // this is the state 2^n
+  int K = 1<<bit_number;
+  batch_count = B/ (K*U.m);
   
+
   batch_count = std::max(1, batch_count);
+  if (batch_count==42) {
+    printf("WHATTA \n");
+    printf("%f",1.0/0.0); } 
   if (debug1) printf("init\n");
   if (debug1)  U.print(true);
   
@@ -319,16 +324,10 @@ void gate::step(rocblas_handle handle,
   if (debug1) U.print();
   if (debug1) printf(" m %d n %d k %d bc %d \n", m, n, k,batch_count);
   
-  const rocblas_stride strideA = m*k;
-  const rocblas_stride strideB = k*n;
-  const rocblas_stride strideC = m*n;
-  
-  if (debug1)  printf(" stridaA %ld strideB %ld strideC %ld \n",
-		      strideA,strideB, strideC);
   
   if (debug1) U.print(true);
   if (debug1) O.print(true);
-
+  calls++;
   switch (comp) {
   case 0:
     cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
@@ -341,15 +340,40 @@ void gate::step(rocblas_handle handle,
     break;
  
   case 2:
-
+    //print(true);
     //   pre_gpu_gemm_t(I, U , O, batch_count);
     gpu_zgemm_matrix_gate_t_2(handle,I,U,O,batch_count); 
     
     if (debug1)  printf("GPU 2 \n");
     break;
   default :
-    cpu_zgemm_matrix_gate_t(I,U,O,batch_count); 
-    if (debug1) printf("CPU\n");
+    print(true);
+    I.print(true);
+      
+    /* we can use this to validate all of the above ? */
+    Matrix C{I.m, I.n, I.M, I.N};
+    C.alloc(true, false);
+    Matrix G1{I.m, I.n, I.M, I.N};
+    G1.alloc(true, true);
+    Matrix G2{I.m, I.n, I.M, I.N};
+    G2.alloc(true, true);
+      
+    cpu_zgemm_matrix_gate_t(I,U,C,batch_count); 
+    C.print(true);
+    gpu_zgemm_matrix_gate_t(handle,I,U,G1,batch_count);
+    G1.readfromdevice();
+    G1.print(true);
+    
+    pre_gpu_gemm_t(I, U , G2, batch_count);
+    gpu_zgemm_matrix_gate_t_2(handle,I,U,G2,batch_count);
+    G2.readfromdevice();
+    G2.print(true);
+
+    C.free();
+    G1.free();
+    G2.free();
+    
+    if (debug1) printf("DEBUG \n");
   
   }
 
@@ -406,26 +430,34 @@ void schedule::forward(rocblas_handle handle) {
 
 void schedule::forward_inplace(rocblas_handle handle) {
   int count = 0;
-  if (debug1)  printf("Circuit forward inplace \n");
+  if (debug2)  printf("Circuit forward inplace \n");
+  if (debug2)  I.print(true);
+
+
   
   for (std::vector<Gate> &level  : schedule) { 
     
-    
+    auto start = std::chrono::high_resolution_clock::now();
     for (Gate &h : level ) { 
       
       h.step(handle,I,I,count++);
 
-      if (debug1) { 
+      if (debug2) { 
 	if (h.comp>0) {
 	  I.readfromdevice();
 	}
 	I.print(true);
       }
     }
+    auto end = std::chrono::high_resolution_clock::now();
+    // 3. Calculate duration (e.g., in microseconds)
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>((end - start));
+    
+    std::cout << "Time: " << duration.count() << " microseconds" << std::endl;
   }
   
 
-  if (debug1)  printf("Circuit forward \n\n");
+  if (debug2)  printf("Circuit forward \n\n");
 }
 
 
@@ -462,8 +494,8 @@ void schedule::print(bool  t)  {
 // Construction of gates
 static NORM_TYPE SQ2 = 1.0/std::sqrt(2);
 
-const double PI_8_COS = std::cos(M_PI / 4.0); // For T-gate
-const double PI_8_SIN = std::sin(M_PI / 4.0);
+const NORM_TYPE PI_8_COS = std::cos(M_PI / 4.0); // For T-gate
+const NORM_TYPE PI_8_SIN = std::sin(M_PI / 4.0);
 
 
 /** 1/sqrt(2) | 1  1 |
