@@ -177,6 +177,7 @@ void gate::cpu_zgemm_matrix_gate_t (
 
 
   }
+  ops = batch*LD*BR.m*BR.n*2*4;
 }
 
 
@@ -201,10 +202,14 @@ void gate::gpu_zgemm_matrix_gate_t (     rocblas_handle handle,
     Matrix C{LD,BR.M,LD,BR.M, CR.matrix+ p*chunk,CR.d_matrix+ p*chunk}; 
 
 
-    C.gemm_gpu(C,ZERO,A,BR,ONE,handle);
+    C.gemm_gpu(C, &ZERO,// d_beta,
+	       A,BR,
+	       &ONE, //d_alpha,
+	       handle);
 
 
   }
+  ops = batch*LD*BR.m*BR.n*2*4;
   //  CR.readfromdevice();
   
 }
@@ -253,22 +258,24 @@ void gate::gpu_zgemm_matrix_gate_t_2 (
   Index M = LD;
   Index N = BR.N;
   Index K = BR.M;
+
+  ops = batch*M*N*K*2*4;
   
   CHECK_ROCBLAS_STATUS(
      GEMM_BATCHED(
 	      handle, 
 	      rocblas_operation_none, rocblas_operation_transpose, // Transpose options (None means no transpose)
 	      M, N, K,
-	      &ONE,
+	      &ONE, //d_alpha,
 	      d_A_ptrs, M, // Pointer to array of const A pointers
 	      d_B_ptrs, K, // Pointer to array of const B pointers
-	      &ZERO,
+	      &ZERO, //d_beta,
 	      d_C_ptrs, M, // Pointer to array of C pointers
 	      batch
 			    )
 		);
 
-  
+  //CHECK_HIP_ERROR(hipDeviceSynchronize());
 }
 
  
@@ -319,6 +326,7 @@ void gate::step(rocblas_handle handle,
 		Matrix &I, Matrix &O,
 		int count ) {
 
+  auto start_ = std::chrono::high_resolution_clock::now();
   
   if (debug1) printf("######   Step %d \n", count );
   if (debug1) U.print();
@@ -378,7 +386,13 @@ void gate::step(rocblas_handle handle,
   }
 
   if (debug1) printf("######   Step %d \n \n",count);
+  auto end_ = std::chrono::high_resolution_clock::now();
   
+  // 3. Calculate duration (e.g., in microseconds)
+  auto duration_ = std::chrono::duration_cast<std::chrono::nanoseconds>((end_ - start_));
+  if (execution_time!=0) execution_time = std::min(execution_time,duration_.count()/1000000000.0);
+  else execution_time=duration_.count()/1000000000.0;
+  tflops = ops/execution_time/1000000000000;
 }
 
 
@@ -432,16 +446,16 @@ void schedule::forward_inplace(rocblas_handle handle) {
   int count = 0;
   if (debug2)  printf("Circuit forward inplace \n");
   if (debug2)  I.print(true);
-
-
+  
+  ops=0;
   
   for (std::vector<Gate> &level  : schedule) { 
-    
+    long long int lops =0;
     auto start = std::chrono::high_resolution_clock::now();
     for (Gate &h : level ) { 
-      
-      h.step(handle,I,I,count++);
 
+      h.step(handle,I,I,count++);
+      lops += h.ops;      
       if (debug2) { 
 	if (h.comp>0) {
 	  I.readfromdevice();
@@ -451,9 +465,12 @@ void schedule::forward_inplace(rocblas_handle handle) {
     }
     auto end = std::chrono::high_resolution_clock::now();
     // 3. Calculate duration (e.g., in microseconds)
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>((end - start));
-    
-    std::cout << "Time: " << duration.count() << " microseconds" << std::endl;
+    auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>((end - start));
+    double level_time =  duration.count()/1000000000.0;
+    std::cout << "Time: " << level_time << " Ops" << lops << 
+      " TFlops: " << lops/level_time/1000000000000 << std::endl;
+
+    ops =lops;
   }
   
 
@@ -470,12 +487,9 @@ void schedule::print(bool  t)  {
       printf("Level %d < %zu \n", l++, level.size());
       int c =0;
       for (Gate &h : level )  { 
-	h.print(t);
+	if (c<5 ||  c>level.size()-5)
+	  h.print(t);
 	c++;
-	if (c>5) {
-	  printf("Level continue  \n");
-	  break;
-	}
       }
       
     }
@@ -503,7 +517,7 @@ const NORM_TYPE PI_8_SIN = std::sin(M_PI / 4.0);
  * Stored in column major 
  */
 
-static ZC hadamard_matrix[] =  {  SQ2*ONE, SQ2*ONE, SQ2*ONE,-SQ2*ONE }; 
+alignas(64) static ZC hadamard_matrix[] =  {  SQ2*ONE, SQ2*ONE, SQ2*ONE,-SQ2*ONE }; 
 Matrix HM_{2,2,2,2, hadamard_matrix};
 Gate Hadamard{"hadamard", HM_};
 
@@ -511,7 +525,7 @@ Gate Hadamard{"hadamard", HM_};
  *   | 0  1 | 
  * Stored in column major but complex numbers  
  */
-static ZC identity_matrix[] =  {  ONE, ZERO, ZERO, ONE }; 
+alignas(64) static ZC identity_matrix[] =  {  ONE, ZERO, ZERO, ONE }; 
 Matrix IM_{2,2,2,2, identity_matrix};
 Gate Identity{"Identity",IM_};
 
@@ -519,7 +533,7 @@ Gate Identity{"Identity",IM_};
  *   | 1 0 | 
  * Stored in column major but complex numbers  x() or not
  */
-static ZC pauli_x_matrix[] =  {  ZERO, ONE, ONE, ZERO };
+alignas(64) static ZC pauli_x_matrix[] =  {  ZERO, ONE, ONE, ZERO };
 Matrix PXM_{2,2,2,2, pauli_x_matrix};
 Gate Pauli_X{"PauliX", PXM_};
 
@@ -528,7 +542,7 @@ Gate Pauli_X{"PauliX", PXM_};
  * Stored in column major but complex numbers  
  */
 
-static ZC pauli_y_matrix[] =  { ZERO, 1.0i*ONE, -1.0i* ONE, ZERO  }; 
+alignas(64) static ZC pauli_y_matrix[] =  { ZERO, 1.0i*ONE, -1.0i* ONE, ZERO  }; 
 Matrix PYM_{2,2,2,2, pauli_y_matrix};
 Gate Pauli_Y{"PauliY",PYM_};
 
@@ -536,7 +550,7 @@ Gate Pauli_Y{"PauliY",PYM_};
  *   | 0  -1 | 
  * Stored in column major but complex numbers  
  */
-static const ZC pauli_z_matrix[] =  { ONE, ZERO, ZERO, -ONE }; 
+alignas(64) static const ZC pauli_z_matrix[] =  { ONE, ZERO, ZERO, -ONE }; 
 Matrix PZM_{2,2,2,2, pauli_x_matrix};
 const Gate Pauli_Z{"PauliZ", PZM_};
 
@@ -549,7 +563,7 @@ const Gate Pauli_Z{"PauliZ", PZM_};
  
  * Stored in column major but complex numbers  
  */
-static  ZC cnot_matrix[] =  {
+alignas(64) static  ZC cnot_matrix[] =  {
   ONE,  ZERO, ZERO, ZERO,
   ZERO, ONE,  ZERO, ZERO,
   ZERO, ZERO, ZERO, ONE,
@@ -559,7 +573,7 @@ Gate CNot{"CNot", CNM_};
 
 	     
 
-static ZC toffoli_matrix[] {
+alignas(64) static ZC toffoli_matrix[] {
     ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column ONE
     ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column 2
     ZERO, ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, // Column 3
@@ -572,7 +586,7 @@ static ZC toffoli_matrix[] {
 Matrix CCNM_{8,8,8,8, toffoli_matrix};
 Gate CCNot{"CCNot", CNM_};
 
-static ZC fredkin_matrix[]{
+alignas(64) static ZC fredkin_matrix[]{
     ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column ZERO: |ZEROZEROZERO>
     ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, ZERO, // Column ONE: |ZEROZEROONE>
     ZERO, ZERO, ONE, ZERO, ZERO, ZERO, ZERO, ZERO, // Column 2: |ZEROONEZERO>
@@ -586,12 +600,42 @@ Matrix FM_{8,8,8,8,  fredkin_matrix};
 Gate Fredkin{"fredkin",FM_} ;
 
 // T-Gate (pi/8 gate)
-static ZC t_matrix[] = {
+alignas(64) static ZC t_matrix[] = {
   ONE, ZERO,                // Column 0
   ZERO, ZC{PI_8_COS, PI_8_SIN}  // Column 1
 };
 Matrix TM_{8,8,8,8,  t_matrix};
 Gate T{"T",TM_} ;
+
+static const NORM_TYPE phi = (1.0 + std::sqrt(5.0)) / 2.0; // 1.618...
+static const NORM_TYPE inv_phi = 1.0 / phi;               // 0.618...
+
+inline ZC exp_i(NORM_TYPE theta) {
+    return ZC{ std::cos(theta), std::sin(theta) };
+}
+
+
+
+
+// 2x2 Symmetric Matrix
+// A[0][1] == A[1][0]
+alignas(64) static ZC MTWO[]{
+  exp_i(phi),    exp_i(inv_phi),
+  exp_i(inv_phi),  exp_i(-phi)
+};
+Matrix TMTWO_{2,2,2,2,  MTWO};
+Gate TTwo{"T2x2",TMTWO_} ;
+
+// 4x4 Symmetric Matrix
+// Pattern uses powers of phi for "randomness" while maintaining A[i][j] = A[j][i]
+alignas(64) static ZC  MFOUR[]{
+  exp_i(phi ),        exp_i(inv_phi * 2),  exp_i(phi * 3),      exp_i(inv_phi * 4),
+  exp_i(inv_phi * 2), exp_i(-phi * 2),     exp_i(inv_phi * 5),  exp_i(phi * 6),
+  exp_i(phi * 3),     exp_i(inv_phi * 5),  exp_i(phi * 3),      exp_i(inv_phi * 7),
+  exp_i(inv_phi * 4), exp_i(phi * 6),      exp_i(inv_phi * 7),  exp_i(-phi * 4)
+};
+Matrix TMFOUR_{4,4,4,4,  MFOUR};
+Gate TFour{"T4x4",TMFOUR_} ;
 
 
 

@@ -254,7 +254,9 @@ struct matrix {
     
   }
   
-  void gemm_gpu(struct matrix &C, ZC beta, struct matrix &A, struct matrix &B, ZC alpha, rocblas_handle handle=0)  {
+  void gemm_gpu(struct matrix &C, Entry* beta, struct matrix &A,
+		struct matrix &B, Entry* alpha,
+		rocblas_handle handle=0)  {
     // C = alpha A * B + beta C
     /*
       The transposistion is a computation trick to exploit the column
@@ -269,14 +271,15 @@ struct matrix {
 	     rocblas_operation_none,
 	     rocblas_operation_none,
 	     A.m, B.n, B.n,  // this is the problem size                                                 
-	     &alpha, 
+	     alpha, 
 	     A.d_matrix, A.m, 
 	     B.d_matrix, B.m, 
-	     &beta, 
+	     beta, 
 	     C.d_matrix, C.m)); 
   
   }
-  void geam_gpu(struct matrix &C, ZC beta, struct matrix &A, struct matrix &B, ZC alpha, rocblas_handle handle=0)  {
+  void geam_gpu(struct matrix &C, Entry beta, struct matrix &A,
+		struct matrix &B, Entry alpha, rocblas_handle handle=0)  {
   
     // C = alpha (A + B) + beta C
     CHECK_ROCBLAS_STATUS(

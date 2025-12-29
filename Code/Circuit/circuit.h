@@ -43,6 +43,8 @@ struct gate {
   Index batch_count =1;
   ZC &alpha = ALPHA;
   ZC &beta  = BETA; 
+  //  inline static ZC *d_alpha = 0 ;
+  //inline static ZC *d_beta  = 0; 
 
   // host pointers the strided pointers for the computation in the host 
   ZC **h_A_ptrs =0 ;
@@ -63,9 +65,13 @@ struct gate {
     m  =   (bit==0)?0:(1<<bit);
   }
 
+  double  ops=0;
+  double  tflops=0;
+  double  execution_time;
   
   // We allocate the pointers only  
   void alloc(bool host, bool device) {
+    
     if (host) { 
       h_A_ptrs = (ZC**)std::malloc(batch_count * sizeof(ZC*));
       assert(h_A_ptrs!=0 && " h_A_ptrs did not make it");
@@ -75,6 +81,13 @@ struct gate {
       assert(h_A_ptrs!=0 && " h_C_ptrs did not make it");
     }
     if (device ) {
+      /*if (d_alpha==0 and d_beta==0) {
+	CHECK_HIP_ERROR(hipMalloc(&d_alpha, sizeof(ZC)));
+	CHECK_HIP_ERROR(hipMalloc(&d_beta,  sizeof(ZC)));
+	CHECK_HIP_ERROR(hipMemcpy(&ONE , d_alpha, sizeof(ZC), hipMemcpyHostToDevice));
+	CHECK_HIP_ERROR(hipMemcpy(&ZERO, d_beta, sizeof(ZC), hipMemcpyHostToDevice));
+      }
+      */
       CHECK_HIP_ERROR(hipMalloc((void**)&d_A_ptrs, batch_count * sizeof(ZC*)));
       CHECK_HIP_ERROR(hipMalloc((void**)&d_B_ptrs, batch_count * sizeof(ZC*)));
       CHECK_HIP_ERROR(hipMalloc((void**)&d_C_ptrs, batch_count * sizeof(ZC*)));
@@ -87,7 +100,12 @@ struct gate {
     if (h_A_ptrs) { std::free(h_A_ptrs); h_A_ptrs=0;} 
     if (h_B_ptrs) { std::free(h_B_ptrs); h_B_ptrs=0;} 
     if (h_C_ptrs) { std::free(h_C_ptrs); h_C_ptrs=0;} 
-
+    /*
+    if (d_alpha!=0 and d_beta!=0) {
+      CHECK_HIP_ERROR(hipFree(d_alpha)); d_alpha=0;
+      CHECK_HIP_ERROR(hipFree(d_beta));  d_beta=0;
+    }
+    */
     CHECK_HIP_ERROR(hipFree(d_A_ptrs));
     CHECK_HIP_ERROR(hipFree(d_B_ptrs));
     CHECK_HIP_ERROR(hipFree(d_C_ptrs));
@@ -136,13 +154,9 @@ struct gate {
   
   void print(bool t=false) {
     std::cout << ">>>>>> Gate " <<  name << "\n"; 
-    printf("Calls %d \n", calls);
-    printf("Bit %d \n", bit_number);
-    printf("Batch %d \n",batch_count );
-    U.print(t);
-    if (batch_count==42) {
-      printf("WHATTA \n");
-      printf("%f",1.0/0.0); } 
+    printf("Calls %d Bit %d  Batch %d \n" , calls, bit_number,batch_count );
+    printf("OPS  %f TFLOPS  %f Time %f \n",ops, tflops,execution_time );
+    U.print();
     std::cout << "<<<<<< Gate " <<  name << "\n"; 
 
   }
@@ -165,7 +179,8 @@ struct schedule {
    * inner vector is the vertical collection of gates
    */
   std::vector<std::vector<Gate>> &schedule; 
-  
+  long long int ops;
+  double flops;
   // we move all the matrices into the 
   void init(int comp=0);
   void forward(rocblas_handle handle);

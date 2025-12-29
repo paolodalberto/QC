@@ -70,7 +70,9 @@ int set_device(int id) {
 
 
 extern Gate CNot;
-extern const Gate Hadamard;
+extern Gate Hadamard;
+extern Gate TTwo;
+extern Gate TFour;
  
 
 int main(int argc, char* argv[]) {
@@ -78,15 +80,16 @@ int main(int argc, char* argv[]) {
   int mydevice  = (argc>1)? std::atoi(argv[1]):0;
   int cpu       = (argc>2)? std::atoi(argv[2]):0;
   int bit       = (argc>3)? std::atoi(argv[3]):2;
-  int times       = (argc>3)? std::atoi(argv[4]):1;
+  int times     = (argc>4)? std::atoi(argv[4]):1;
+  int test      = (argc>5)? std::atoi(argv[5]):0;
   int result =  set_device(mydevice);
   
-  int M = 1<< bit;
+  Index  M = 1<< bit;
   printf(" device: %d ;  State Bits %d Space %d \n", mydevice, bit, M);
   
   rocblas_handle handle;
   CHECK_ROCBLAS_STATUS(rocblas_create_handle(&handle));
-
+  //rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device);
 
   Matrix Input = {M,1,M,1};
   Input.alloc(true,true);
@@ -101,6 +104,8 @@ int main(int argc, char* argv[]) {
 
 
 
+  long long int ops_l1 = M*bit*(2*2*4); // State * # gate * operation per gate
+  long long int ops_l2 = M*(bit/2)*(4*4*4); // State * # gate * operation per gate
 
 
 
@@ -110,13 +115,13 @@ int main(int argc, char* argv[]) {
   // building the circuit like we belong
   std::vector<Gate> Hs;
   for (int i=0; i<bit; i++)  { 
-    Gate H0 = Hadamard;
+    Gate H0 = (test==0)?Hadamard:TTwo;
     H0.set_index(i);
     Hs.push_back(H0);
   }
   std::vector<Gate> Cs;
   for (int i=0; i<bit; i+=2)  { 
-    Gate CN = CNot;
+    Gate CN = (test==0)?CNot:TFour;
     CN.set_index(i);
     Cs.push_back(CN);
   }
@@ -140,19 +145,20 @@ int main(int argc, char* argv[]) {
     Bell.forward_inplace(handle);
     //if (cpu>0) Input.readfromdevice();
   }
-
+  CHECK_HIP_ERROR(hipDeviceSynchronize());
 
   auto end_ = std::chrono::high_resolution_clock::now();
   
   // 3. Calculate duration (e.g., in microseconds)
   auto duration_ = std::chrono::duration_cast<std::chrono::microseconds>((end_ - start_)/times);
   
-  std::cout << "Time: " << duration_.count() << " microseconds" << std::endl;
+  std::cout << "Average Time: " << duration_.count() << " microseconds" << std::endl;
 
+  Bell.print(true);
 
   if (cpu>0) Input.readfromdevice();
   Input.print(true);
-  
+  printf("OPS L1 %lld  L2 %lld \n", ops_l1, ops_l2);
   for (std::vector<Gate> &level  : schedule)
     for (Gate h : level )
       h.free();
