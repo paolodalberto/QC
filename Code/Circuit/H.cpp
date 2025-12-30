@@ -132,10 +132,10 @@ int main(int argc, char* argv[]) {
   
   Circuit Bell{Input, Input, schedule};
   Bell.init(cpu);
-  Bell.print(true);
+  //Bell.print(true);
   
 
-  Input.print(true);
+  //Input.print(true);
   printf(" Computing \n");
   auto start_ = std::chrono::high_resolution_clock::now();
 
@@ -150,10 +150,12 @@ int main(int argc, char* argv[]) {
   auto end_ = std::chrono::high_resolution_clock::now();
   
   // 3. Calculate duration (e.g., in microseconds)
-  auto duration_ = std::chrono::duration_cast<std::chrono::microseconds>((end_ - start_)/times);
-  
-  std::cout << "Average Time: " << duration_.count() << " microseconds" << std::endl;
+  auto duration_ = std::chrono::duration_cast<std::chrono::nanoseconds>((end_ - start_)/times);
+  double time =  duration_.count()/1000000000.0;
+    std::cout << "Average Time: " << time << " Ops " << Bell.ops << 
+      " TFlops: " << Bell.ops/time/1000000000000 << std::endl;
 
+  
   Bell.print(true);
 
   if (cpu>0) Input.readfromdevice();

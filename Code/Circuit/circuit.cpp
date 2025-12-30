@@ -467,10 +467,10 @@ void schedule::forward_inplace(rocblas_handle handle) {
     // 3. Calculate duration (e.g., in microseconds)
     auto duration = std::chrono::duration_cast<std::chrono::nanoseconds>((end - start));
     double level_time =  duration.count()/1000000000.0;
-    std::cout << "Time: " << level_time << " Ops" << lops << 
+    std::cout << "Time: " << level_time << " Ops " << lops << 
       " TFlops: " << lops/level_time/1000000000000 << std::endl;
 
-    ops =lops;
+    ops +=lops;
   }
   
 
@@ -482,7 +482,7 @@ void schedule::forward_inplace(rocblas_handle handle) {
 void schedule::print(bool  t)  {
     int l =0;
     printf("BEGIN Circuit %zu \n", schedule.size());
-    I.print(true);
+    //I.print(true);
     for (std::vector<Gate> &level  : schedule) {
       printf("Level %d < %zu \n", l++, level.size());
       int c =0;
