@@ -37,8 +37,10 @@ and it is equivalent to the larger Heisenberg matrix for the first layer:
 A = [ H (x) H ]  A
 ```
 
-A 1 qbit Gate is a 2x2 Unitary matrix gate (Hadamard) 
+A 1 qbit Gate is a 2x2 Unitary matrix gate (Hadamard)
+
 A 2 qbit Gate is a 4x4 Unitary matrix gate (CNOT, H (x) H ) 
+
 A 3 qbit Gate is a 8x8 Unitary matrix gate (CCNOT)
 
 The number of layers determines the depth of the circuit. Each Layer
