@@ -9,10 +9,10 @@ A layer is a composition of Gates applied to the circuit q-bits
 (lines). The main property is that the gate computation is parallel
 (not touched bits are not affected). We perform the computation by
 representing the state.
-
+```
 q0 ----- H --- 0
 q1 ------H --- X
-
+```
 For example, q0 and q1 are two qbits and the state is a complex vector
 associated to the measurable and complete base x_i = |00>, |01>, |10>
 and |11> Any vector is a composition of the Sum a_i *x_i .. a_i is a
@@ -22,14 +22,20 @@ is the probability that when we measure the system the result will be |i>.
 Note we specify the Kronecker product as (x) (ascii style)
 
 The Gate computation H to bit 0 is equivalent to a
- A = [ I_2 (x) H ]*A
+```
+A = [ I_2 (x) H ]*A
+```
  
 The Gate computation H to bit 1 is equivalent to a
- A = [ H (x) I_2] A
+```
+A = [ H (x) I_2] A
+```
 
 The computation is associative as long as we "accumulate" the result
 and it is equivalent to the larger Heisenberg matrix for the first layer:
+```
 A = [ H (x) H ]  A
+```
 
 A 1 qbit Gate is a 2x2 Unitary matrix gate (Hadamard) 
 A 2 qbit Gate is a 4x4 Unitary matrix gate (CNOT, H (x) H ) 
@@ -67,20 +73,25 @@ As Data Structures:
     * A layer is a vector of Gates
     
 In practice, the idea is to have a circuit in the host and in the
-GPU. The simulation takes an initial state and compute the final
+GPU. The simulation takes an initial state and computes the final
 state. This final state can be used to compute probability and thus the simulated runs.
 
 If the Input does not change the computation is completely
-deterministic unless we introduce randomness in the unitary matrix or
-its computation (we could extend the gate to a injecting error gate).
+deterministic; unless, we introduce randomness in the unitary matrix
+or its computation (we could extend the gate to a injecting error
+gate).
 
 ** How to make it ?
 
-First some manual work and understanding.
+There are two source files: H.cpp  circuit.cpp 
+and two include files: matrices.h and circuit.h
+We use two BLAS libraries : openblas (CPU) and rocblas (GPU) 
 
 
 
-Either introduce the definition in the Make file or change it in the davidson.h file
+Either introduce the definition in the Make file or change it in the
+sources: single precision and double precision complex have to be used
+(we tested only double complex).
 
 ```c++
 /**
@@ -95,38 +106,175 @@ Either introduce the definition in the Make file or change it in the davidson.h 
 
 ```
 
-Then make it and run it. 
-
-
+Then make it 
 
 ```bash
-
-paolod@xsjfislx31:/scratch/Quant/QC/Code/DavidsonR/C$ make all
-/opt/rocm/bin/hipcc    -c -o sortarg.o sortarg.cpp
-/opt/rocm/bin/hipcc    -c -o preconditioning.o preconditioning.cpps
-
-/opt/rocm/bin/hipcc    -c -o davidson.o davidson.cpp
+f-docker /scratch/QC/Code/Circuit > make 
 ------------------------------------------------------
-Linking object files into the final executable: davidson
-/opt/rocm/bin/hipcc  sortarg.o preconditioning.o davidson.o -lrocblas -lrocsolver -o davidson
+Compiling H.cpp to object file H.o
+/opt/rocm/bin/hipcc -O1 --std=c++17 -I./  -I./  -c H.cpp -o H.o
+------------------------------------------------------
+------------------------------------------------------
+Compiling circuit.cpp to object file circuit.o
+/opt/rocm/bin/hipcc -O1 --std=c++17 -I./  -I./  -c circuit.cpp -o circuit.o
+------------------------------------------------------
+------------------------------------------------------
+Linking object files into the final executable: H
+/opt/rocm/bin/hipcc -O1 --std=c++17 -I./ H.o circuit.o -lrocblas -lopenblas -lpthread -lm -o H
 ------------------------------------------------------
 ```
-then to execute
+
+
+then to execute you may want to be aware of a few parameters
+```c++
+int main(int argc, char* argv[]) {
+   // Method 1: Using atoi (C-style, simpler but less robust)
+  int mydevice  = (argc>1)? std::atoi(argv[1]):0; // GPU device #
+  int cpu       = (argc>2)? std::atoi(argv[2]):0; // cpu=0, GPUGEMM cpu=1, Batched cpu=2, test cpu=3
+  int bit       = (argc>3)? std::atoi(argv[3]):2; // number of bits
+  int times     = (argc>4)? std::atoi(argv[4]):1; // number of time we repeat the computation
+  int test      = (argc>5)? std::atoi(argv[5]):0; // test=0 to use Hadamard and CNOT test=1 for complex computation only (no compiler can optimize these matrices).
+ 
+
+```
+
+
+
 ```bash
-## davidson Device-number Size Iterations
-paolod@xsjfislx31:/scratch/Quant/QC/Code/DavidsonR/C$   ./davidson 0 45000 2 10
-[sudo] password for paolod: 
-Integer from atoi: 0
+tf-docker /scratch/QC/Code/Circuit > ./H 0 2 25 1 0            
 Device 0: AMD Instinct MI100
 Device 1: AMD Instinct MI100
 Device 2: AMD Instinct MI100
 Successfully set device to 0
- device: 0 M: 45000 n_eng: 2 it: 10 
- davidson  2 10 
-Davidson converged after 5 iteration
- 0 8.693980e-01 
- 1 2.000476e+00 
-davidson: 4.54741 seconds.
+ device: 0 ;  State Bits 25 Space 33554432 
+Column Major M,N = 33554432,1
+(1,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+(0,0) 
+ Computing 
+Iteration 0 
+Time: 0.040508 Ops 13421772800 TFlops: 0.331337
+Time: 0.000234661 Ops 13958643712 TFlops: 59.4843
+Average Time: 0.258397 Ops 27380416512 TFlops: 0.105962
+BEGIN Circuit 2 
+Level 0 < 25 
+>>>>>> Gate hadamard
+Calls 1 Bit 0  Batch 16777216 
+OPS  536870912.000000 TFLOPS  0.013441 Time 0.039942 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 1  Batch 8388608 
+OPS  536870912.000000 TFLOPS  7.615946 Time 0.000070 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 2  Batch 4194304 
+OPS  536870912.000000 TFLOPS  34.261066 Time 0.000016 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 3  Batch 2097152 
+OPS  536870912.000000 TFLOPS  29.720489 Time 0.000018 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 4  Batch 1048576 
+OPS  536870912.000000 TFLOPS  30.343690 Time 0.000018 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 21  Batch 8 
+OPS  536870912.000000 TFLOPS  36.304498 Time 0.000015 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 22  Batch 4 
+OPS  536870912.000000 TFLOPS  28.158550 Time 0.000019 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 23  Batch 2 
+OPS  536870912.000000 TFLOPS  10.216577 Time 0.000053 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+>>>>>> Gate hadamard
+Calls 1 Bit 24  Batch 1 
+OPS  536870912.000000 TFLOPS  4.920681 Time 0.000109 
+Column Major M,N = 2,2
+<<<<<< Gate hadamard
+Level 1 < 13 
+>>>>>> Gate CNot
+Calls 1 Bit 0  Batch 8388608 
+OPS  1073741824.000000 TFLOPS  68.570268 Time 0.000016 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 2  Batch 2097152 
+OPS  1073741824.000000 TFLOPS  84.122675 Time 0.000013 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 4  Batch 524288 
+OPS  1073741824.000000 TFLOPS  85.810103 Time 0.000013 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 6  Batch 131072 
+OPS  1073741824.000000 TFLOPS  100.256006 Time 0.000011 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 8  Batch 32768 
+OPS  1073741824.000000 TFLOPS  92.388730 Time 0.000012 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 18  Batch 32 
+OPS  1073741824.000000 TFLOPS  71.592334 Time 0.000015 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 20  Batch 8 
+OPS  1073741824.000000 TFLOPS  73.756136 Time 0.000015 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 22  Batch 2 
+OPS  1073741824.000000 TFLOPS  53.992147 Time 0.000020 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+>>>>>> Gate CNot
+Calls 1 Bit 24  Batch 1 
+OPS  1073741824.000000 TFLOPS  20.854620 Time 0.000051 
+Column Major M,N = 4,4
+<<<<<< Gate CNot
+END Circuit 
+Column Major M,N = 33554432,1
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+(0.000172633,0) 
+OPS L1 536870912  L2 0 
 ```
 
-In the code there is a validation if you like.
+This is an example where we run the batched computation. We annotated
+each gate with performance information but they may give you only an
+idea because the function calls are ASYNC for batched and not at all
+for GEMM.
+
+The parameters ALPHA and BETA for the GEMM computation are from the
+host and we can improve these synchronizations. 
