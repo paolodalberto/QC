@@ -73,6 +73,12 @@ As Data Structures:
 * We have a Circuit 
   * A vector of Layers
     * A layer is a vector of Gates
+
+Notice, This is a general Gate description and implementation. We can
+specialize any Gate and its gate computation by instead of a function
+for the computation a pointer to a function. At this time, we stick to
+a general computation especially because we are just trying to
+understand the basic mathematics of the state update and computation. 
     
 In practice, the idea is to have a circuit in the host and in the
 GPU. The simulation takes an initial state and computes the final
@@ -279,4 +285,41 @@ idea because the function calls are ASYNC for batched and not at all
 for GEMM.
 
 The parameters ALPHA and BETA for the GEMM computation are from the
-host and we can improve these synchronizations. 
+host and we can improve these synchronizations.
+
+** Considerations **
+
+The CPU implementation is based on openBLAS. There are other libraries
+that will take advantage of vector computations and this should make
+the CPU faster.
+
+The GPU based on rocblas GEMM is worse that the CPU implementation.
+
+The GPU based on batched GEMM is ASYNC but not completely (Alpha and
+beta). As of this writing I could not make it work to have a copy
+resident in the GPU and have a correct computation (I will need more
+help).
+
+In practice, batched GPU implementation can be 100x faster that the
+CPU for the whole graph ... Please take a look at the graph
+construction here and in the code
+
+```c++
+  // building the circuit like we belong
+  std::vector<Gate> Hs;
+  for (int i=0; i<bit; i++)  { 
+    Gate H0 = (test==0)?Hadamard:TTwo;
+    H0.set_index(i);
+    Hs.push_back(H0);
+  }
+  std::vector<Gate> Cs;
+  for (int i=0; i<bit; i+=2)  { 
+    Gate CN = (test==0)?CNot:TFour;
+    CN.set_index(i);
+    Cs.push_back(CN);
+  }
+
+  std::vector<std::vector<Gate>> schedule{Hs, Cs}; 
+
+```
+
