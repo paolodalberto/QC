@@ -18,7 +18,7 @@
 #include <cmath>
 #include <hip/hip_runtime.h>
 #include <rocblas/rocblas.h>
-#include <rocsolver/rocsolver.h>
+//#include <rocsolver/rocsolver.h>
 #include <cstdlib>
 #include <cblas.h>
 

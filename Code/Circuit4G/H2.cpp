@@ -223,7 +223,7 @@ int main(int argc, char* argv[]) {
   // Method 1: Using atoi (C-style, simpler but less robust)
   int BITS  = (argc>1)? std::atoi(argv[1]):20;
 
-  std::vector<int> permutation{1,0,2};
+  std::vector<int> permutation{0,1,3,2,4};
   
   try {
     run_shuffle_test(BITS,permutation);

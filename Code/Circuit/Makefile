@@ -9,7 +9,7 @@ HIP_COMPILER = /opt/rocm/bin/hipcc
 # ... rest of the file
 
 # Define standard compiler flags for C++14/C++17 compatibility
-HIP_FLAGS =    -O1 --std=c++17 -I./
+HIP_FLAGS =    -O1 --std=c++17 -I./ -DTYPE_OPERAND=3
 
 INCLUDE_DIRS = -I./
 
