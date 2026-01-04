@@ -49,9 +49,12 @@ std::vector<int> set_peers(std::vector<int> permutation) {
     printf("i  %i p[%d]:%d \n",i,i,permutation[i]);
     
     if (permutation[i] ==i) continue;
-
-    CHECK_HIP(hipSetDevice(i));
-    CHECK_HIP(hipDeviceEnablePeerAccess(permutation[i], 0));
+    int can_access;
+    CHECK_HIP(hipDeviceCanAccessPeer(&can_access, i, permutation[i]));
+    if (can_access) {
+      CHECK_HIP(hipSetDevice(i));
+      CHECK_HIP(hipDeviceEnablePeerAccess(permutation[i], 0));
+    }
   }
   
   return R;
@@ -76,7 +79,7 @@ struct buffer {
   };
 
   void print() {
-    printf(" Buffer at GPU %d State %p Size %ld Origin %p AND Temp %p  Size %ld\n",
+    printf(" Buffer at GPU %d State %p Size %ld Origin %p AND Temp %p  Size %ld \n",
 	   gpu, (void*)state,s_bytes, (void*)origin, (void*)temp,  t_bytes);
   }
   
@@ -86,6 +89,7 @@ struct connection  {
   struct buffer &A;
   struct buffer &B;
   hipStream_t   s=0;
+  int can_access=0;
 
   void free() {
     A.free();
@@ -97,7 +101,7 @@ struct connection  {
     A.print();
     printf("Dest   : ");
     B.print();
-    printf("Stream Handle Value: %p\n", (void*)s);
+    printf("Stream Handle Value: %p Peer %d\n", (void*)s, can_access);
   }
 
 };
@@ -108,7 +112,6 @@ void set_temp(std::vector<int> gpus,
 	 std::vector<struct buffer> &Bs,
 	 std::vector<struct connection> &Cs,
 	 size_t state_bytes,size_t temp_bytes  ) {
-
   
   for (int gpu : gpus) {
     ZC *d_state=0, *d_temp=0; 
@@ -120,7 +123,7 @@ void set_temp(std::vector<int> gpus,
     if (permutation[gpu] !=gpu ) {
       printf("\t GPU %d temp %zu \n", gpu, state_bytes);
       CHECK_HIP(hipMalloc(&d_temp, temp_bytes));
-    } else temp_bytes=0;
+    } //else temp_bytes=0;
 
     struct buffer base{gpu,d_state,state_bytes,d_state+(temp_bytes)/sizeof(ZC),d_temp,temp_bytes};
     printf("Buffer \n");
@@ -132,7 +135,7 @@ void set_temp(std::vector<int> gpus,
 
     if (permutation[gpu] ==gpu ) continue;
     struct connection ONE{Bs[gpu],Bs[permutation[gpu]]}; 
-
+    CHECK_HIP(hipDeviceCanAccessPeer(&ONE.can_access, gpu, permutation[gpu]));
     
     CHECK_HIP(hipSetDevice(gpu));CHECK_HIP(hipStreamCreate(&ONE.s));
     printf("Connection \n");
@@ -158,6 +161,13 @@ void run_shuffle_test(int BITS, std::vector<int> permutation) {
   size_t half_elements = full_state_size / 2;
   size_t bytes = half_elements * sizeof(ZC);
 
+
+  ZC *h_stage;
+  // Pinned memory is required for ~3x bandwidth and safe staging
+  CHECK_HIP(hipHostMalloc(&h_stage, bytes)); 
+  
+
+  
   printf("shuffle peers\n");
   std::vector<int> GPUs =  set_peers(permutation);
 
@@ -172,15 +182,39 @@ void run_shuffle_test(int BITS, std::vector<int> permutation) {
   
   
   for (struct connection  &C : data) {
-    printf("ASYNC communication \n");
-    C.print();
     // ASYNC CROSS-GPU TRANSFER
     // GPU 0 sends its data to GPU 1's buffer
-    CHECK_HIP(hipMemcpyPeerAsync(C.B.temp,   C.B.gpu,
-				 C.A.origin, C.A.gpu,
-				 C.A.t_bytes,
-				 C.s));
-    
+    //    CHECK_HIP(hipSetDevice(C.A.gpu)); 
+    if (C.can_access) {
+      printf("ASYNC communication \n");
+      C.print();
+
+      CHECK_HIP(hipMemcpyPeerAsync(C.B.temp,   C.B.gpu,
+				   C.A.origin, C.A.gpu,
+				   C.A.t_bytes,
+				   C.s
+				   ));
+    }
+  }
+  for (struct connection  &C : data) {
+    // ASYNC CROSS-GPU TRANSFER
+    // GPU 0 sends its data to GPU 1's buffer
+    //    CHECK_HIP(hipSetDevice(C.A.gpu)); 
+    if (!C.can_access) { 
+      printf("SYNC communication \n");
+      C.print();
+      // Step A: Source GPU -> Host
+      CHECK_HIP(hipSetDevice(C.A.gpu));
+      CHECK_HIP(hipMemcpyAsync(h_stage, C.A.origin, C.A.t_bytes, hipMemcpyDeviceToHost, C.s));
+      
+      // Step B: Ensure the D2H copy is finished before Host -> Destination GPU starts
+      CHECK_HIP(hipStreamSynchronize(C.s)); 
+
+      // Step C: Host -> Destination GPU
+      CHECK_HIP(hipSetDevice(C.B.gpu));
+      CHECK_HIP(hipMemcpyAsync(C.B.temp, h_stage, C.A.t_bytes, hipMemcpyHostToDevice, C.s));
+      CHECK_HIP(hipStreamSynchronize(C.s)); 
+    }
 
   }
   
@@ -190,8 +224,8 @@ void run_shuffle_test(int BITS, std::vector<int> permutation) {
   size_t blocks = (half_elements + threads - 1) / threads;
 
   for (struct connection  &C : data) { 
-    CHECK_HIP(hipSetDevice(C.A.gpu));
-    permutation_kernel<<<blocks, threads, 0, C.s>>>(C.A.origin, C.A.temp, C.A.t_bytes/sizeof(ZC));
+    CHECK_HIP(hipSetDevice(C.B.gpu));
+    permutation_kernel<<<blocks, threads, 0, C.s>>>(C.B.origin, C.B.temp, C.B.t_bytes/sizeof(ZC));
 
   }
   for (struct connection  &A : data) { 
@@ -223,7 +257,12 @@ int main(int argc, char* argv[]) {
   // Method 1: Using atoi (C-style, simpler but less robust)
   int BITS  = (argc>1)? std::atoi(argv[1]):20;
 
-  std::vector<int> permutation{0,1,3,2,4};
+  // This is the n+2-n bit for 4 GPU
+  // 0 - 2 and 1-3
+  // 0 - 1 and 2-3 is the n+1 - n bit  
+  std::vector<int> permutation{2,3,0,2,
+    4 // the last gpu stays put 
+  };
   
   try {
     run_shuffle_test(BITS,permutation);
