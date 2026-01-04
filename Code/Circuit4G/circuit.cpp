@@ -29,7 +29,7 @@
 
 // we define the computation double complex 
 
-#define TYPE_OPERAND 4 
+#define TYPE_OPERAND 3 
 #include "matrices.h"  // definition of matrices 
 #include "circuit.h"   // definition of Gate and Circuit
 

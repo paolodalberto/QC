@@ -9,19 +9,19 @@ HIP_COMPILER = /opt/rocm/bin/hipcc
 # ... rest of the file
 
 # Define standard compiler flags for C++14/C++17 compatibility
-HIP_FLAGS =    -O1 --std=c++17 -I./
+HIP_FLAGS =  -O2 --std=c++17 -I./
 
 INCLUDE_DIRS = -I./
 
 # Define linker flags to include rocBLAS and rocSOLVER libraries
 # The -l prefix is standard for linking libraries
 # Assuming libraries are in the default ROCm path (/opt/rocm/lib) which hipcc knows
-LIBRARIES = -lrocblas -lopenblas -lpthread -lm
+LIBRARIES = #-lrocblas -lopenblas -lpthread -lm
 
 
 
 # Source file
-SOURCES = H1.cpp  #circuit.cpp 
+SOURCES = H2.cpp  #circuit.cpp 
 
 # Generate a list of required object files from the source files (e.g., davidson.o, sortarg.o, ...)
 OBJECTS = $(SOURCES:.cpp=.o)
