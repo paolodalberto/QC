@@ -9,7 +9,7 @@ HIP_COMPILER = /opt/rocm/bin/hipcc
 # ... rest of the file
 
 # Define standard compiler flags for C++14/C++17 compatibility
-HIP_FLAGS =  -O2 --std=c++17 -I./
+HIP_FLAGS =  -g -O0 --std=c++17  -DTYPE_OPERAND=4
 
 INCLUDE_DIRS = -I./
 
@@ -21,7 +21,7 @@ LIBRARIES = #-lrocblas -lopenblas -lpthread -lm
 
 
 # Source file
-SOURCES = H2.cpp  #circuit.cpp 
+SOURCES = H4.cpp  matrices.cpp #circuit.cpp 
 
 # Generate a list of required object files from the source files (e.g., davidson.o, sortarg.o, ...)
 OBJECTS = $(SOURCES:.cpp=.o)

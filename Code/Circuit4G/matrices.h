@@ -19,7 +19,7 @@
 #include <thread>
 #include <hip/hip_runtime.h>
 #include <rocblas/rocblas.h>
-#include <rocsolver/rocsolver.h>
+//#include <rocsolver/rocsolver.h>
 #include <cstdlib>
 #include <cblas.h>
 
@@ -118,10 +118,10 @@ static ZC EPS{ 1e-6, 1e-6};
 // system we can address more than 2G elements ... we are aiming to
 // have a state of size < 16GB .. 2^32 
 
-typedef int Index;
+typedef size_t Index;
 
 
-#define CHECK_HIP_ERROR(call) {			\
+#define CHECK_HIP_ERROR(call) {						\
     hipError_t err = call;						\
     if (err != hipSuccess) {						\
       std::cerr << "HIP error at " << __FILE__ << ":" << __LINE__ << " : " \
@@ -142,7 +142,7 @@ typedef int Index;
 // I like to wrap the matrices into a container
 template <typename Entry>
 struct matrix {
-
+  
   // struct as a class members are all public
   Index m;                       // rows
   Index n;                       // cols
@@ -153,6 +153,12 @@ struct matrix {
   bool gate = true;
   bool transpose= false;
   bool conjugate_transpose= false;
+  int gpu = -1;
+  rocblas_handle handle_gpu=0;
+  
+  void set_device() {
+    if (gpu!=-1)  CHECK_HIP_ERROR(hipSetDevice(gpu));
+  }
   
   size_t initialize_host_matrix(const Entry* initial_data) {
     // Calculate total size needed
@@ -173,7 +179,10 @@ struct matrix {
   
   void free() {
     if (matrix and !gate)   { std::free(matrix);        matrix =0; }
-    if (d_matrix) { CHECK_HIP_ERROR(hipFree(d_matrix)); d_matrix=0;}
+    if (d_matrix) {
+      set_device();
+      CHECK_HIP_ERROR(hipFree(d_matrix));
+      d_matrix=0;}
   }
   void alloc(bool host , bool device  ) {
     if (size()>0) {
@@ -182,20 +191,26 @@ struct matrix {
 	matrix = (Entry*) std::calloc(M*N,sizeof(Entry));
 	assert(matrix!=0 && " Failed to allocate Doh\n");
       }
-      if (device and d_matrix==0) CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(Entry)));		      
+      if (device and d_matrix==0) {
+	set_device(); 
+	CHECK_HIP_ERROR(hipMalloc(&d_matrix, M*N* sizeof(Entry)));
+      }		      
     }
   }
   void readfromdevice() {
-    if ( matrix!=0 and d_matrix!=0) 
+    if ( matrix!=0 and d_matrix!=0) { 
+      set_device(); 
       CHECK_HIP_ERROR(hipMemcpy(matrix , d_matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
+      
+    }
   }
   void writetodevice() {
-    if ( matrix!=0 and d_matrix!=0) 
+    if ( matrix!=0 and d_matrix!=0)  {
+      set_device(); 
       CHECK_HIP_ERROR(hipMemcpy(d_matrix , matrix, size() * sizeof(Entry), hipMemcpyHostToDevice));
-    
+    }
   }
-
-
+  
   /**********
    *  These four operations determines the * + algebra in hte CPU and
    *  GPU so if you like you can replicate the computation or perform
@@ -267,8 +282,9 @@ struct matrix {
       already column major and thus is physically transpose ? and I is
       a vector ...
     */
+
     CHECK_ROCBLAS_STATUS(
-	GEMM(handle, 
+	GEMM(handle_gpu, 
 	     rocblas_operation_none,
 	     rocblas_operation_none,
 	     A.m, B.n, B.n,  // this is the problem size                                                 
@@ -332,4 +348,83 @@ struct matrix {
 
 typedef struct matrix<ZC> Matrix;
 typedef struct matrix<NORM_TYPE> EigenValueMatrix;
+  
 
+  
+struct buffer { // this is a device buffer
+  int gpu;
+  // State
+  ZC     *state=0;   // matrix.d_matrix pointer 
+  size_t s_bytes=0;
+  
+  // relative pointer where to read in the state
+  ZC    *origin=0;
+
+  // temporary buffer
+  ZC    *temp=0;
+  size_t t_bytes=0;
+
+  void free() {
+    if (0 and state) { CHECK_HIP_ERROR(hipFree(state)); state=0;} 
+    if (temp)  { CHECK_HIP_ERROR(hipFree(temp)); temp=0;} 
+  };
+
+  void print() {
+    printf(" Buffer at GPU %d State %p Size %ld Origin %p AND Temp %p  Size %ld \n",
+	   gpu, (void*)state,s_bytes, (void*)origin, (void*)temp,  t_bytes);
+  }
+  
+};
+
+
+struct connection  {
+  struct buffer &A;
+  struct buffer &B;
+  hipStream_t   s=0;
+  int can_access=0;
+
+  void free() {
+    A.free();
+    B.free();
+    if (s) { CHECK_HIP_ERROR(hipStreamDestroy(s)); s = 0; }
+  };
+  void print() {
+    printf("Source : ");
+    A.print();
+    printf("Dest   : ");
+    B.print();
+    printf("Stream Handle Value: %p Peer %d\n", (void*)s, can_access);
+  }
+
+};
+
+
+// This kernel represents the "Rewrite" phase after the transfer.
+// It places the incoming data into the correct bit-permuted location.
+
+
+  
+
+template <typename Entry>
+struct distributed_state{
+  int bits;
+  std::vector<Matrix> &G;
+  
+  std::vector<int> gpus;
+  Index size=0; 
+
+  void set_peers();
+  void init();
+  void free();
+  void set_temp(std::vector<int> gpus,
+		std::vector<int> permutation,
+		std::vector<struct buffer> &Bs,
+		std::vector<struct connection> &Cs,
+		size_t state_bytes,size_t temp_bytes  );
+  void run_shuffle_test(std::vector<int> permutation);
+  
+};
+
+
+
+typedef struct distributed_state<ZC> STATE;
