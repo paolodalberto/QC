@@ -403,7 +403,31 @@ struct connection  {
 // It places the incoming data into the correct bit-permuted location.
 
 
+struct memory_block {
+  int gpu;
+  int block;
+  Index size;
+  struct buffer buffer;
   
+};
+
+typedef struct memory_block Block
+
+
+typedef struct state_block SBlock;
+
+struct communication {
+  Block source;
+  Block destin;
+};
+typedef struct communication Communication;
+
+
+typedef  std::vector<Communication>  Permutation;
+
+  
+
+
 
 template <typename Entry>
 struct distributed_state{
@@ -421,6 +445,7 @@ struct distributed_state{
 		std::vector<struct buffer> &Bs,
 		std::vector<struct connection> &Cs,
 		size_t state_bytes,size_t temp_bytes  );
+  void set_communication(Permutation P);
   void run_shuffle_test(std::vector<int> permutation);
   
 };
