@@ -81,6 +81,33 @@ void distributed_state<ZC>::set_temp(std::vector<int> gpus,
 };
 
 template <> 
+void distributed_state<ZC>::set_communication(Permutation &P){
+  
+  for (Communication &c : P) {
+    
+    CHECK_HIP_ERROR(hipDeviceCanAccessPeer(&C.can_access,
+					   c.source.gpu,
+					   c.destin.gpu));
+    CHECK_HIP_ERROR(hipSetDevice(c.source.gpu));
+    if (ONE.can_access) {
+      CHECK_HIP_ERROR(hipDeviceEnablePeerAccess(c.destination.gpu, 0));
+    }
+    
+    CHECK_HIP_ERROR(hipStreamCreate(&C.s));
+    printf("Connection \n");
+    
+    
+    c.print();
+  }
+  printf("buffers \n");
+  for (auto &e : Bs) e.print();
+  printf("connections \n");
+  for (auto &e : Cs) e.print();
+  
+  
+};
+
+template <> 
 void  distributed_state<ZC>::init() {
   size = 1ULL << bits;
   set_peers();
@@ -165,6 +192,97 @@ void  distributed_state<ZC>::run_shuffle_test(std::vector<int> permutation) {
       // Step C: Host -> Destination GPU
       CHECK_HIP_ERROR(hipSetDevice(C.B.gpu));
       CHECK_HIP_ERROR(hipMemcpyAsync(C.B.temp, h_stage, C.A.t_bytes, hipMemcpyHostToDevice, C.s));
+      CHECK_HIP_ERROR(hipStreamSynchronize(C.s)); 
+    }
+    
+  }
+  
+  // 4. The Rewrite Phase
+    // Launch kernels on both GPUs to integrate the new data into the local state
+  int threads = 256;
+  size_t blocks = (half_elements + threads - 1) / threads;
+
+  for (struct connection  &C : data) { 
+    CHECK_HIP_ERROR(hipSetDevice(C.B.gpu));
+    permutation_kernel<<<blocks, threads, 0, C.s>>>(C.B.origin, C.B.temp, C.B.t_bytes/sizeof(ZC));
+    
+  }
+  for (struct connection  &A : data) { 
+    CHECK_HIP_ERROR(hipStreamSynchronize(A.s));
+  }
+  
+  
+  auto end_ = std::chrono::high_resolution_clock::now();
+  
+  
+  // 3. Calculate duration (e.g., in microseconds)
+  auto duration_ = std::chrono::duration_cast<std::chrono::nanoseconds>((end_ - start_));
+  double time =  duration_.count()/1000000000.0;
+  std::cout << " TBS: " << sizeof(ZC)*(full_state_size)/time/1000000000000 << std::endl;
+  
+  
+  std::cout << "Successfully performed HBM-to-HBM Bit Permutation Layer.\n";
+  
+  // Cleanup
+  for (struct connection  A : data) { 
+    A.free();
+  }
+  for (struct buffer  A : Bs) { 
+    A.free();
+  }
+};
+
+
+
+template <> 
+void  distributed_state<ZC>::run_shuffle_test(Permutation &P) {
+
+  ZC *h_stage;
+  // Pinned memory is required for ~3x bandwidth and safe staging
+  CHECK_HIP_ERROR(hipHostMalloc(&h_stage, P[0].source.s_bytes)); 
+  
+  
+  printf("shuffle set\n");
+  set_communication(P);
+  
+  
+  auto start_ = std::chrono::high_resolution_clock::now();
+  
+  
+  for (Communication &C : P) {
+    // ASYNC CROSS-GPU TRANSFER
+    // GPU 0 sends its data to GPU 1's buffer
+    //    CHECK_HIP_ERROR_ERROR(hipSetDevice(C.A.gpu)); 
+    if (C.can_access) {
+      printf("ASYNC communication \n");
+      C.print();
+      
+      CHECK_HIP_ERROR(
+	    hipMemcpyPeerAsync(
+	       C.destination.state,   C.destination.gpu,
+	       C.source.state, C.source.gpu,
+	       C.source.s_bytes,
+	       C.s
+			       ));
+    }
+  }
+  for (struct connection  &C : data) {
+    // ASYNC CROSS-GPU TRANSFER
+    // GPU 0 sends its data to GPU 1's buffer
+    //    CHECK_HIP_ERROR(hipSetDevice(C.A.gpu)); 
+    if (!C.can_access) { 
+      printf("SYNC communication \n");
+      C.print();
+      // Step A: Source GPU -> Host
+      CHECK_HIP_ERROR(hipSetDevice(C.source.gpu));
+      CHECK_HIP_ERROR(hipMemcpyAsync(h_stage, C.source.state, C.source.s_bytes, hipMemcpyDeviceToHost, C.s));
+      
+      // Step B: Ensure the D2H copy is finished before Host -> Destination GPU starts
+      CHECK_HIP_ERROR(hipStreamSynchronize(C.s)); 
+      
+      // Step C: Host -> Destination GPU
+      CHECK_HIP_ERROR(hipSetDevice(C.destination.gpu));
+      CHECK_HIP_ERROR(hipMemcpyAsync(C.destination.temp, h_stage, C.destination.s_bytes, hipMemcpyHostToDevice, C.s));
       CHECK_HIP_ERROR(hipStreamSynchronize(C.s)); 
     }
     

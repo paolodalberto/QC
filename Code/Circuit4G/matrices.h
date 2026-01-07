@@ -407,7 +407,29 @@ struct memory_block {
   int gpu;
   int block;
   Index size;
-  struct buffer buffer;
+  ZC     *state=0;   // matrix.d_matrix pointer 
+  size_t s_bytes=0;
+  bool   temporary = false;
+  void alloc(size_t size, ZC *reference=0) {
+    if (reference!=0) { 
+      s_bytes = size;
+      state = reference + block*s_byte/sizeof(ZC);
+    }
+    else {
+      state = (ZC*) malloc(s_bytes);
+    }
+  };
+  void alloc(size_t size, ZC *reference=0) {
+    if (reference!=0) {
+      
+      s_bytes = size;
+      state = reference + block*s_byte/sizeof(ZC);
+    }
+    else {
+      temporary=true;
+      state = (ZC*) malloc(s_bytes);
+    }
+  };
   
 };
 
@@ -418,7 +440,15 @@ typedef struct state_block SBlock;
 
 struct communication {
   Block source;
-  Block destin;
+  Block destination;
+  hipStream_t   s=0;
+  int can_access=0;
+  void print() {
+    printf("Can %d S:\n",can_access);
+    source.print();
+    printf("D:\n");
+    destination.print();
+  }
 };
 typedef struct communication Communication;
 
