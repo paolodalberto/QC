@@ -399,56 +399,95 @@ struct connection  {
 };
 
 
+
 // This kernel represents the "Rewrite" phase after the transfer.
 // It places the incoming data into the correct bit-permuted location.
 
 
+/*
+ A memory block is specified by a GPU and an integer identifying the
+ relative block ..this is a small number describing how many bits we
+ are swapping and thus a simplified computation of the relative
+ address.
+
+ This can be the source we want to transfer this block from this GPU
+ somewhere else or it can be a destination usually an allocated space
+ and we copy into a specific location and then moved .. the last part
+ is important 
+
+*/
+
 struct memory_block {
-  int gpu;
-  int block;
+  int   gpu;
+  int   block;
   Index size;
   ZC     *state=0;   // matrix.d_matrix pointer 
   size_t s_bytes=0;
-  bool   temporary = false;
+  bool   temporary = false; // destination will use a temporary 
+
   void alloc(size_t size, ZC *reference=0) {
     if (reference!=0) { 
       s_bytes = size;
-      state = reference + block*s_byte/sizeof(ZC);
+      state = reference + block*s_bytes/sizeof(ZC);
     }
     else {
       state = (ZC*) malloc(s_bytes);
     }
   };
-  void alloc(size_t size, ZC *reference=0) {
-    if (reference!=0) {
-      
-      s_bytes = size;
-      state = reference + block*s_byte/sizeof(ZC);
-    }
-    else {
-      temporary=true;
-      state = (ZC*) malloc(s_bytes);
-    }
-  };
-  
+  void free() {
+    if (temporary and state) { std::free(state); state=0;}
+  }
 };
 
-typedef struct memory_block Block
+typedef struct memory_block Block;
+
+/* 
+   Destination -> Source we will create a hip stream for each
+   connection (gpu-gpu) this is a copy to the same hpstream connection
 
 
-typedef struct state_block SBlock;
+   Communication &c : P
+   
+   CHECK_HIP_ERROR(hipDeviceCanAccessPeer(&c.can_access,
+					   c.source.gpu,
+					   c.destination.gpu));
+   CHECK_HIP_ERROR(hipSetDevice(c.source.gpu));
+   if (ONE.can_access) {
+      CHECK_HIP_ERROR(hipDeviceEnablePeerAccess(c.destination.gpu, 0));
+   }
+   CHECK_HIP_ERROR(hipStreamCreate(&c.s)); 
+
+   there should be a one stream and one can_access per gpu-gpu pair I
+   believe we can transfer different blocks
+
+
+ */
+
+struct peer_to_peer {
+  int s_gpu;
+  int d_gpu;
+  hipStream_t   s=0;  /* these are per gpu-gpu conection*/
+  int can_access=0;
+
+
+};
+
+
 
 struct communication {
   Block source;
   Block destination;
-  hipStream_t   s=0;
-  int can_access=0;
+
+  struct peer_to_peer peer; /* these are per gpu-gpu conection*/
+
   void print() {
-    printf("Can %d S:\n",can_access);
+    printf("Can %d S:\n",peer.can_access);
     source.print();
     printf("D:\n");
     destination.print();
   }
+  
+  
 };
 typedef struct communication Communication;
 

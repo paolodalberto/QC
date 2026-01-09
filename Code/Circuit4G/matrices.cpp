@@ -85,15 +85,15 @@ void distributed_state<ZC>::set_communication(Permutation &P){
   
   for (Communication &c : P) {
     
-    CHECK_HIP_ERROR(hipDeviceCanAccessPeer(&C.can_access,
+    CHECK_HIP_ERROR(hipDeviceCanAccessPeer(&c.can_access,
 					   c.source.gpu,
-					   c.destin.gpu));
+					   c.destination.gpu));
     CHECK_HIP_ERROR(hipSetDevice(c.source.gpu));
     if (ONE.can_access) {
       CHECK_HIP_ERROR(hipDeviceEnablePeerAccess(c.destination.gpu, 0));
     }
     
-    CHECK_HIP_ERROR(hipStreamCreate(&C.s));
+    CHECK_HIP_ERROR(hipStreamCreate(&c.s));
     printf("Connection \n");
     
     
