@@ -80,38 +80,15 @@ void distributed_state<ZC>::set_temp(std::vector<int> gpus,
   
 };
 
-template <> 
-void distributed_state<ZC>::set_communication(Permutation &P){
-  
-  for (Communication &c : P) {
-    
-    CHECK_HIP_ERROR(hipDeviceCanAccessPeer(&c.can_access,
-					   c.source.gpu,
-					   c.destination.gpu));
-    CHECK_HIP_ERROR(hipSetDevice(c.source.gpu));
-    if (ONE.can_access) {
-      CHECK_HIP_ERROR(hipDeviceEnablePeerAccess(c.destination.gpu, 0));
-    }
-    
-    CHECK_HIP_ERROR(hipStreamCreate(&c.s));
-    printf("Connection \n");
-    
-    
-    c.print();
-  }
-  printf("buffers \n");
-  for (auto &e : Bs) e.print();
-  printf("connections \n");
-  for (auto &e : Cs) e.print();
-  
-  
-};
 
 template <> 
 void  distributed_state<ZC>::init() {
+
   size = 1ULL << bits;
-  set_peers();
-  for (int i=0; i<gpus.size(); i++) {
+  graph.init();
+  gpus = graph.gpus;
+  
+  for (int i=0; i<graph.gpus.size(); i++) {
     Matrix M{size,1,size,1};
     M.gpu = gpus[i];
     M.alloc(true,true);
@@ -129,8 +106,11 @@ void  distributed_state<ZC>::free() {
     G[i].print(true);
     G[i].free();
   }
+
   G.clear();
-  
+  graph.free();
+  gpus.clear();
+    
 }
 
 
@@ -243,47 +223,48 @@ void  distributed_state<ZC>::run_shuffle_test(Permutation &P) {
   
   
   printf("shuffle set\n");
-  set_communication(P);
+  
   
   
   auto start_ = std::chrono::high_resolution_clock::now();
   
   
   for (Communication &C : P) {
+    
     // ASYNC CROSS-GPU TRANSFER
     // GPU 0 sends its data to GPU 1's buffer
     //    CHECK_HIP_ERROR_ERROR(hipSetDevice(C.A.gpu)); 
-    if (C.can_access) {
+    if (C.peer.can_access) {
       printf("ASYNC communication \n");
       C.print();
       
       CHECK_HIP_ERROR(
 	    hipMemcpyPeerAsync(
-	       C.destination.state,   C.destination.gpu,
+	       C.destination.temp,   C.destination.gpu,
 	       C.source.state, C.source.gpu,
 	       C.source.s_bytes,
-	       C.s
+	       C.peer.s
 			       ));
     }
   }
-  for (struct connection  &C : data) {
+  for (Communication &C : P) {
     // ASYNC CROSS-GPU TRANSFER
     // GPU 0 sends its data to GPU 1's buffer
     //    CHECK_HIP_ERROR(hipSetDevice(C.A.gpu)); 
-    if (!C.can_access) { 
+    if (!C.peer.can_access) { 
       printf("SYNC communication \n");
       C.print();
       // Step A: Source GPU -> Host
       CHECK_HIP_ERROR(hipSetDevice(C.source.gpu));
-      CHECK_HIP_ERROR(hipMemcpyAsync(h_stage, C.source.state, C.source.s_bytes, hipMemcpyDeviceToHost, C.s));
+      CHECK_HIP_ERROR(hipMemcpyAsync(h_stage, C.source.state, C.source.s_bytes, hipMemcpyDeviceToHost, C.peer.s));
       
       // Step B: Ensure the D2H copy is finished before Host -> Destination GPU starts
-      CHECK_HIP_ERROR(hipStreamSynchronize(C.s)); 
+      CHECK_HIP_ERROR(hipStreamSynchronize(C.peer.s)); 
       
       // Step C: Host -> Destination GPU
       CHECK_HIP_ERROR(hipSetDevice(C.destination.gpu));
-      CHECK_HIP_ERROR(hipMemcpyAsync(C.destination.temp, h_stage, C.destination.s_bytes, hipMemcpyHostToDevice, C.s));
-      CHECK_HIP_ERROR(hipStreamSynchronize(C.s)); 
+      CHECK_HIP_ERROR(hipMemcpyAsync(C.destination.temp, h_stage, C.destination.s_bytes, hipMemcpyHostToDevice, C.peer.s));
+      CHECK_HIP_ERROR(hipStreamSynchronize(C.peer.s)); 
     }
     
   }
@@ -293,13 +274,13 @@ void  distributed_state<ZC>::run_shuffle_test(Permutation &P) {
   int threads = 256;
   size_t blocks = (half_elements + threads - 1) / threads;
 
-  for (struct connection  &C : data) { 
-    CHECK_HIP_ERROR(hipSetDevice(C.B.gpu));
-    permutation_kernel<<<blocks, threads, 0, C.s>>>(C.B.origin, C.B.temp, C.B.t_bytes/sizeof(ZC));
+  for (Communication &C : P) {
+    CHECK_HIP_ERROR(hipSetDevice(C.destination.gpu));
+    permutation_kernel<<<blocks, threads, 0, C.peer.s>>>(C.destination.temp, C.destination.state, C.B.t_bytes/sizeof(ZC));
     
   }
-  for (struct connection  &A : data) { 
-    CHECK_HIP_ERROR(hipStreamSynchronize(A.s));
+  for (Communication &C : P) {
+    CHECK_HIP_ERROR(hipStreamSynchronize(C.peer.s));
   }
   
   

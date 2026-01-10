@@ -22,6 +22,8 @@
 //#include <rocsolver/rocsolver.h>
 #include <cstdlib>
 #include <cblas.h>
+#include <map>
+
 
 /// Miscellaneous errors
 
@@ -420,8 +422,8 @@ struct connection  {
 struct memory_block {
   int   gpu;
   int   block;
-  Index size;
   ZC     *state=0;   // matrix.d_matrix pointer 
+  ZC     *temp =0;   // matrix.d_matrix pointer 
   size_t s_bytes=0;
   bool   temporary = false; // destination will use a temporary 
 
@@ -436,7 +438,14 @@ struct memory_block {
   };
   void free() {
     if (temporary and state) { std::free(state); state=0;}
+  };
+
+  void print() {
+    printf(" Buffer at GPU %d block %d state %p Size %ld  \n",
+	   gpu, block, (void*)state,s_bytes);
   }
+  
+  
 };
 
 typedef struct memory_block Block;
@@ -468,8 +477,55 @@ struct peer_to_peer {
   int d_gpu;
   hipStream_t   s=0;  /* these are per gpu-gpu conection*/
   int can_access=0;
+};
 
+struct bi_partite {
 
+  std::vector<int> gpus;
+  std::map<std::vector<int>, struct peer_to_peer> connectionmap;
+
+  void init() {
+
+    int n_gpu;
+    CHECK_HIP_ERROR(hipGetDeviceCount(&n_gpu));
+    
+    for (int i=0; i<n_gpu-1; i++) {
+      gpus.push_back(i);
+    }
+    
+    for (int source : gpus)
+      for (int destination : gpus)  {
+	struct peer_to_peer c{source,destination};
+	std::vector<int> key{source,destination};
+	
+	CHECK_HIP_ERROR(hipDeviceCanAccessPeer(&c.can_access,
+					       c.s_gpu,
+					       c.d_gpu));
+	CHECK_HIP_ERROR(hipSetDevice(c.s_gpu));
+	if (c.can_access) {
+	  CHECK_HIP_ERROR(hipDeviceEnablePeerAccess(c.d_gpu, 0));
+	}
+	
+	CHECK_HIP_ERROR(hipStreamCreate(&c.s));
+	connectionmap[key] = c;
+	
+      }  
+  };
+  void free() {
+    
+    for (auto& [key, val] : connectionmap) {
+      // Access the struct members directly from 'val'
+      if (val.s) {
+	CHECK_HIP_ERROR(hipStreamDestroy(val.s));
+	val.s = 0;
+      }
+      
+    }
+    connectionmap.clear();
+    gpus.clear();
+  };
+  
+  
 };
 
 
@@ -478,23 +534,22 @@ struct communication {
   Block source;
   Block destination;
 
-  struct peer_to_peer peer; /* these are per gpu-gpu conection*/
+  struct peer_to_peer &peer; /* these are per gpu-gpu conection*/
 
   void print() {
     printf("Can %d S:\n",peer.can_access);
     source.print();
     printf("D:\n");
     destination.print();
-  }
-  
-  
+  };
 };
+
 typedef struct communication Communication;
 
 
 typedef  std::vector<Communication>  Permutation;
 
-  
+
 
 
 
@@ -502,6 +557,7 @@ template <typename Entry>
 struct distributed_state{
   int bits;
   std::vector<Matrix> &G;
+  struct bi_partite graph;
   
   std::vector<int> gpus;
   Index size=0; 
@@ -514,7 +570,7 @@ struct distributed_state{
 		std::vector<struct buffer> &Bs,
 		std::vector<struct connection> &Cs,
 		size_t state_bytes,size_t temp_bytes  );
-  void set_communication(Permutation P);
+
   void run_shuffle_test(std::vector<int> permutation);
   
 };
