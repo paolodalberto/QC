@@ -2,7 +2,11 @@
 #ifndef TYPE_OPERAND
 #define TYPE_OPERAND 4 
 #endif
+
 #include "matrices.h"
+
+
+
 
 
 
@@ -84,20 +88,23 @@ void distributed_state<ZC>::set_temp(std::vector<int> gpus,
 template <> 
 void  distributed_state<ZC>::init() {
 
-  size = 1ULL << bits;
+  size = 1ULL << bits; // per GPU
   graph.init();
-  gpus = graph.gpus;
+  for (int i=0; i<graph.n_gpus;i++)
+    gpus.push_back(i);
   
-  for (int i=0; i<graph.gpus.size(); i++) {
+  for (int i=0; i<graph.n_gpus; i++) {
     Matrix M{size,1,size,1};
     M.gpu = gpus[i];
+
+    // we may not need to create the space in the host: GPUs > HOST
     M.alloc(true,true);
     M.print();
     G.push_back(M);
   }
   
   
-}
+};
 
 template <> 
 void  distributed_state<ZC>::free() {
@@ -111,7 +118,7 @@ void  distributed_state<ZC>::free() {
   graph.free();
   gpus.clear();
     
-}
+};
 
 
 
@@ -217,66 +224,38 @@ void  distributed_state<ZC>::run_shuffle_test(std::vector<int> permutation) {
 template <> 
 void  distributed_state<ZC>::run_shuffle_test(Permutation &P) {
 
-  ZC *h_stage;
+  ZC *h_stage=0;
   // Pinned memory is required for ~3x bandwidth and safe staging
   CHECK_HIP_ERROR(hipHostMalloc(&h_stage, P[0].source.s_bytes)); 
   
   
   printf("shuffle set\n");
-  
-  
-  
   auto start_ = std::chrono::high_resolution_clock::now();
   
   
-  for (Communication &C : P) {
-    
+  for (Communication &C : P) 
     // ASYNC CROSS-GPU TRANSFER
-    // GPU 0 sends its data to GPU 1's buffer
-    //    CHECK_HIP_ERROR_ERROR(hipSetDevice(C.A.gpu)); 
-    if (C.peer.can_access) {
-      printf("ASYNC communication \n");
-      C.print();
-      
-      CHECK_HIP_ERROR(
-	    hipMemcpyPeerAsync(
-	       C.destination.temp,   C.destination.gpu,
-	       C.source.state, C.source.gpu,
-	       C.source.s_bytes,
-	       C.peer.s
-			       ));
-    }
-  }
-  for (Communication &C : P) {
-    // ASYNC CROSS-GPU TRANSFER
-    // GPU 0 sends its data to GPU 1's buffer
-    //    CHECK_HIP_ERROR(hipSetDevice(C.A.gpu)); 
-    if (!C.peer.can_access) { 
-      printf("SYNC communication \n");
-      C.print();
-      // Step A: Source GPU -> Host
-      CHECK_HIP_ERROR(hipSetDevice(C.source.gpu));
-      CHECK_HIP_ERROR(hipMemcpyAsync(h_stage, C.source.state, C.source.s_bytes, hipMemcpyDeviceToHost, C.peer.s));
-      
-      // Step B: Ensure the D2H copy is finished before Host -> Destination GPU starts
-      CHECK_HIP_ERROR(hipStreamSynchronize(C.peer.s)); 
-      
-      // Step C: Host -> Destination GPU
-      CHECK_HIP_ERROR(hipSetDevice(C.destination.gpu));
-      CHECK_HIP_ERROR(hipMemcpyAsync(C.destination.temp, h_stage, C.destination.s_bytes, hipMemcpyHostToDevice, C.peer.s));
-      CHECK_HIP_ERROR(hipStreamSynchronize(C.peer.s)); 
-    }
-    
-  }
+    if (C.peer.can_access) 
+      graph.send_async(C.peer,C.source.state,C.destination.temp,C.source.s_bytes);
+  
+
+  for (Communication &C : P) 
+    // SYNC CROSS-GPU TRANSFER
+    if (!C.peer.can_access) 
+      graph.send_sync(C.peer,C.source.state,C.destination.temp,C.source.s_bytes,h_stage);
+
+
+  // We did all transfers from state to a temporary space now we have
+  // to move the final destination
   
   // 4. The Rewrite Phase
-    // Launch kernels on both GPUs to integrate the new data into the local state
+  // Launch kernels on both GPUs to integrate the new data into the local state
   int threads = 256;
-  size_t blocks = (half_elements + threads - 1) / threads;
+  size_t blocks =  (P[0].destination.s_bytes/sizeof(ZC) + threads - 1) / threads;
 
   for (Communication &C : P) {
     CHECK_HIP_ERROR(hipSetDevice(C.destination.gpu));
-    permutation_kernel<<<blocks, threads, 0, C.peer.s>>>(C.destination.temp, C.destination.state, C.B.t_bytes/sizeof(ZC));
+    permutation_kernel<<<blocks, threads, 0, C.peer.s>>>(C.destination.temp, C.destination.state, C.destination.s_bytes/sizeof(ZC));
     
   }
   for (Communication &C : P) {
@@ -290,18 +269,12 @@ void  distributed_state<ZC>::run_shuffle_test(Permutation &P) {
   // 3. Calculate duration (e.g., in microseconds)
   auto duration_ = std::chrono::duration_cast<std::chrono::nanoseconds>((end_ - start_));
   double time =  duration_.count()/1000000000.0;
-  std::cout << " TBS: " << sizeof(ZC)*(full_state_size)/time/1000000000000 << std::endl;
+  std::cout << " TBS: " << sizeof(ZC)*(P[0].destination.s_bytes)/time/1000000000000 << std::endl;
   
   
   std::cout << "Successfully performed HBM-to-HBM Bit Permutation Layer.\n";
-  
-  // Cleanup
-  for (struct connection  A : data) { 
-    A.free();
-  }
-  for (struct buffer  A : Bs) { 
-    A.free();
-  }
+
+  std::free(h_stage);
 };
 
 

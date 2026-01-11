@@ -21,7 +21,7 @@ LIBRARIES = #-lrocblas -lopenblas -lpthread -lm
 
 
 # Source file
-SOURCES = H4.cpp  matrices.cpp #circuit.cpp 
+SOURCES = H4.cpp  matrices.cpp network.cpp #circuit.cpp 
 
 # Generate a list of required object files from the source files (e.g., davidson.o, sortarg.o, ...)
 OBJECTS = $(SOURCES:.cpp=.o)
